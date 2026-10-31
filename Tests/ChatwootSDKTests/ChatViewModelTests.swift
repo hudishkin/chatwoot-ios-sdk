@@ -49,7 +49,7 @@ final class ChatViewModelTests: XCTestCase {
     func testEmptyDbAndSlowSyncShowsLoadingUntilWaitEndsThenEmpty() async {
         let source = FakeChatRepository()
         source.slowSync = true
-        let vm = makeViewModel(source, emptyWaitMs: 40)
+        let vm = makeViewModel(source, emptyWaitMs: 500)
 
         await settle(ms: 20)
         XCTAssertTrue(vm.state.isLoading)
@@ -447,6 +447,7 @@ final class FakeChatRepository: ChatRepository {
     var fileResult: Result<Void, ChatwootError> = .success(())
     private(set) var syncCalls = 0
     var slowSync = false
+    private var syncContinuations: [CheckedContinuation<Void, Never>] = []
     private(set) var syncSettled = false
     private(set) var catchUpRuns = 0
     private(set) var catchUpActive = false
@@ -468,7 +469,8 @@ final class FakeChatRepository: ChatRepository {
     func sync() async {
         syncCalls += 1
         if slowSync {
-            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
+            await withCheckedContinuation { continuation in
+                syncContinuations.append(continuation)
             }
         }
         syncSettled = true
