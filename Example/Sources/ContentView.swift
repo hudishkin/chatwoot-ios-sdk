@@ -39,7 +39,7 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showChat) {
             NavigationView {
-                Chatwoot.chatView()
+                Chatwoot.chatView(request: chatRequest)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Close") { showChat = false }
@@ -48,6 +48,23 @@ struct ContentView: View {
             }
             .navigationViewStyle(.stack)
         }
+    }
+
+    private var chatRequest: ChatRequest {
+        ChatRequest(attachmentMenu: [
+            .photo,
+            .file,
+            .custom(CustomAttachment(title: "Sample note", systemImage: "note.text") {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("sample-note-\(UUID().uuidString).txt")
+                do {
+                    try Data("Sample note\n".utf8).write(to: url)
+                    return ChatAttachmentFile(url: url, mimeType: "text/plain")
+                } catch {
+                    return nil
+                }
+            })
+        ])
     }
 
     private func openChat() async {

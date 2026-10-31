@@ -281,6 +281,18 @@ final class ChatViewModelTests: XCTestCase {
         await eventually { done == 2 }
     }
 
+    func testAttachFailedEmitsError() async {
+        let source = FakeChatRepository()
+        let vm = makeViewModel(source)
+        var effects: [ChatSideEffect] = []
+        let cancellable = vm.effects.sink { effects.append($0) }
+        defer { cancellable.cancel() }
+
+        vm.onAttachFailed()
+
+        XCTAssertEqual(effects, [.showError(.attachFailed)])
+    }
+
     func testRemoteAttachmentOpenEmitsOpenFile() async {
         let source = FakeChatRepository()
         let vm = makeViewModel(source)

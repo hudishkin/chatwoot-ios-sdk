@@ -70,6 +70,54 @@ final class ConfigAndModelsTests: XCTestCase {
         XCTAssertEqual(object["since"] as? String, "2024-01-15")
     }
 
+    func testDefaultAttachmentMenuIsPhotoThenFile() {
+        XCTAssertEqual(ChatRequest.default.attachmentMenu.map(\.menuIdentity), ["photo", "file"])
+    }
+
+    func testCustomAttachmentTrimsTitleAndDefaultsIcon() {
+        let action = CustomAttachment(title: "  Note  ", systemImage: "  ", provide: { nil })
+        XCTAssertEqual(action.title, "Note")
+        XCTAssertEqual(action.id, "Note")
+        XCTAssertEqual(action.systemImage, "doc")
+    }
+
+    func testRequestEqualityIgnoresAttachmentProvider() {
+        let left = ChatRequest(attachmentMenu: [
+            .file,
+            .custom(CustomAttachment(title: "Note", id: "note", provide: { nil }))
+        ])
+        let right = ChatRequest(attachmentMenu: [
+            .file,
+            .custom(CustomAttachment(title: "Note", id: "note", provide: {
+                ChatAttachmentFile(url: URL(fileURLWithPath: "/tmp/note.txt"), mimeType: "text/plain")
+            }))
+        ])
+        XCTAssertEqual(left, right)
+        let renamed = ChatRequest(attachmentMenu: [
+            .custom(CustomAttachment(title: "Other", id: "note", provide: { nil }))
+        ])
+        XCTAssertNotEqual(left, renamed)
+    }
+
+    func testVisibleAttachmentMenuSkipsBlankCustomAndUnavailablePhoto() {
+        let menu: [ChatAttachmentMenuItem] = [
+            .photo,
+            .custom(CustomAttachment(title: "   ", provide: { nil })),
+            .file,
+            .custom(CustomAttachment(title: "Invoice", systemImage: "doc.text", provide: { nil }))
+        ]
+        let visible = ChatAttachmentMenuItem.visible(menu).map(\.menuIdentity)
+        #if os(iOS)
+        if #available(iOS 16, *) {
+            XCTAssertEqual(visible, ["photo", "file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
+        } else {
+            XCTAssertEqual(visible, ["file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
+        }
+        #else
+        XCTAssertEqual(visible, ["file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
+        #endif
+    }
+
     func testPersonalDataMaskedInDescriptions() {
         let identity = Identity(identifier: "user-42", identifierHash: "hash")
         XCTAssertEqual(identity.description, "Identity(***)")
