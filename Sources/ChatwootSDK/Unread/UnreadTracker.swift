@@ -57,13 +57,15 @@ actor UnreadTracker {
     func start() {
         guard observeTasks.isEmpty else { return }
         refreshUnread()
-        observeTasks.append(Task { [weak self, changes] in
-            for await _ in changes.values {
+        let changes = changes.eagerValues()
+        observeTasks.append(Task { [weak self] in
+            for await _ in changes {
                 await self?.refreshUnread()
             }
         })
-        observeTasks.append(Task { [weak self, retryTriggers] in
-            for await _ in retryTriggers.values {
+        let retryTriggers = retryTriggers.eagerValues()
+        observeTasks.append(Task { [weak self] in
+            for await _ in retryTriggers {
                 await self?.retryUnacknowledged()
             }
         })

@@ -45,9 +45,9 @@ actor RoomChannelClient {
         stopInternal()
         self.pubsubToken = pubsubToken
         missedConfirms.send(0)
-        let frames = socket.frames
+        let frames = socket.frames.eagerValues()
         collectTask = Task { [weak self] in
-            for await frame in frames.values {
+            for await frame in frames {
                 await self?.handleFrame(frame)
             }
         }

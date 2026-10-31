@@ -268,13 +268,15 @@ actor ChatwootCore {
                 sessionGuard.onMissedConfirms(count)
             }
         })
-        guardTasks.append(Task { [sessionGuard, disconnects = cable.terminalDisconnects] in
-            for await reason in disconnects.values {
+        let disconnects = cable.terminalDisconnects.eagerValues()
+        guardTasks.append(Task { [sessionGuard] in
+            for await reason in disconnects {
                 sessionGuard.onTerminalDisconnect(reason: reason)
             }
         })
-        guardTasks.append(Task { [weak self, sessionGuard, store = sessionStore, verifier] in
-            for await reason in sessionGuard.reidentifyRequests.values {
+        let requests = sessionGuard.reidentifyRequests.eagerValues()
+        guardTasks.append(Task { [weak self, store = sessionStore, verifier] in
+            for await reason in requests {
                 guard let stale = store.current else { continue }
                 let verdict = await verifier.verify(session: stale)
                 guard verdict == .stale else { continue }
