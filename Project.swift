@@ -2,7 +2,7 @@ import ProjectDescription
 
 /// Release version: the release workflow tags this commit with it.
 /// Keep `ChatwootSDK.version` in `Sources/ChatwootSDK/ChatwootSDK.swift` equal to it.
-let version = "0.1.0"
+let version = "0.2.0"
 
 let project = Project(
     name: "ChatwootSDK",
