@@ -143,6 +143,12 @@ final class ChatViewModel: ObservableObject {
         apply(window: window.state)
     }
 
+    var attachmentMenu: [ChatAttachmentMenuItem] { source.request.attachmentMenu }
+
+    func onAttachFailed() {
+        effects.send(.showError(.attachFailed))
+    }
+
     func onAttachmentPicked(url: URL?, mime: String?, afterQueued: @escaping () -> Void = {}) {
         guard let url else { return }
         Task { [weak self] in

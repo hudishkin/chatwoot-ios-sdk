@@ -7,11 +7,14 @@ struct ComposerCell: View {
     @Binding var text: String
     let sending: Bool
     let onSend: () -> Void
+    let attachmentMenu: [ChatAttachmentMenuItem]
     let onAttachmentPicked: (_ url: URL, _ mime: String, _ cleanup: @escaping () -> Void) -> Void
+    let onAttachFailed: () -> Void
 
     @Environment(\.chatColors) private var colors
     @FocusState private var focused: Bool
     @State private var fileImporterShown = false
+    @State private var customBusy = false
 
     private static let fieldCorner: CGFloat = 20
     private static let maxLines = 5
@@ -21,15 +24,19 @@ struct ComposerCell: View {
             Rectangle()
                 .fill(colors.scheme.outlineVariant)
                 .frame(height: 0.5)
-            HStack(alignment: .bottom, spacing: 4) {
-                attachMenu
+            HStack(alignment: .center, spacing: 4) {
+                if !visibleMenu.isEmpty {
+                    attachMenu
+                }
                 field
                 sendButton
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
-        .background(colors.composerContainer)
+        .background {
+            colors.composerContainer.ignoresSafeArea(edges: .bottom)
+        }
         .fileImporter(isPresented: $fileImporterShown, allowedContentTypes: [.item]) { result in
             guard case .success(let url) = result else { return }
             let scoped = url.startAccessingSecurityScopedResource()
@@ -43,28 +50,85 @@ struct ComposerCell: View {
         }
     }
 
+    private var visibleMenu: [ChatAttachmentMenuItem] {
+        ChatAttachmentMenuItem.visible(attachmentMenu)
+    }
+
     private var attachMenu: some View {
         Menu {
-            #if os(iOS)
-            if #available(iOS 16, *) {
-                PhotoAttachButton { item in
-                    Task { await importPhoto(item) }
+            ForEach(Array(visibleMenu.enumerated()), id: \.offset) { _, item in
+                menuRow(item)
+            }
+        } label: {
+            Group {
+                if customBusy {
+                    ProgressView()
+                } else {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 18))
+                        .foregroundColor(colors.scheme.onSurfaceVariant)
                 }
             }
-            #endif
+            .frame(width: Spacing.touchTarget, height: Spacing.touchTarget)
+            .contentShape(Rectangle())
+        }
+        .disabled(customBusy)
+        .accessibilityLabel(ChatStrings.attach)
+    }
+
+    @ViewBuilder
+    private func menuRow(_ item: ChatAttachmentMenuItem) -> some View {
+        switch item {
+        case .photo:
+            photoRow
+        case .file:
             Button {
                 fileImporterShown = true
             } label: {
                 Label(ChatStrings.attachFile, systemImage: "doc")
             }
-        } label: {
-            Image(systemName: "paperclip")
-                .font(.system(size: 18))
-                .foregroundColor(colors.scheme.onSurfaceVariant)
-                .frame(width: Spacing.touchTarget, height: Spacing.touchTarget)
-                .contentShape(Rectangle())
+        case .custom(let action):
+            Button {
+                startCustom(action)
+            } label: {
+                Label(action.title, systemImage: action.systemImage)
+            }
         }
-        .accessibilityLabel(ChatStrings.attach)
+    }
+
+    @ViewBuilder
+    private var photoRow: some View {
+        #if os(iOS)
+        if #available(iOS 16, *) {
+            PhotoAttachButton { item in
+                Task { await importPhoto(item) }
+            }
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
+    private func startCustom(_ action: CustomAttachment) {
+        guard !customBusy else { return }
+        customBusy = true
+        Task {
+            defer { customBusy = false }
+            guard let file = await action.provide() else { return }
+            deliver(file)
+        }
+    }
+
+    private func deliver(_ file: ChatAttachmentFile) {
+        let scoped = file.url.startAccessingSecurityScopedResource()
+        defer { if scoped { file.url.stopAccessingSecurityScopedResource() } }
+        do {
+            let tmp = try ComposerCell.copyToTemp(file.url, fallbackMime: file.mimeType ?? "application/octet-stream")
+            let mime = file.mimeType ?? tmp.mime
+            onAttachmentPicked(tmp.url, mime) { try? FileManager.default.removeItem(at: tmp.url) }
+        } catch {
+            onAttachFailed()
+        }
     }
 
     private var field: some View {

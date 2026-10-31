@@ -105,12 +105,16 @@ private struct ChatScreen: View {
                 ),
                 sending: viewModel.state.sending,
                 onSend: viewModel.onSend,
+                attachmentMenu: viewModel.attachmentMenu,
                 onAttachmentPicked: { url, mime, cleanup in
                     viewModel.onAttachmentPicked(url: url, mime: mime, afterQueued: cleanup)
-                }
+                },
+                onAttachFailed: viewModel.onAttachFailed
             )
         }
-        .background(colors.chatBackground)
+        .background {
+            colors.chatBackground.ignoresSafeArea(edges: .bottom)
+        }
         .navigationTitle(viewModel.state.title ?? ChatStrings.chatTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
