@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        run: |
+          VERSION=$(sed -n 's/^let version = "\(.*\)"$/\1/p' Project.swift)
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Project.swift: version must be X.Y.Z, got '$VERSION'"
+            exit 1
+          fi
+          if ! grep -q "public static let version = \"$VERSION\"" Sources/ChatwootSDK/ChatwootSDK.swift; then
+            echo "::error::ChatwootSDK.version in Sources/ChatwootSDK/ChatwootSDK.swift must be $VERSION"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::Tag $VERSION already exists. Bump version in Project.swift"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: swift test
+
+      - name: Build for iOS
+        run: |
+          xcodebuild build \
+            -scheme ChatwootSDK \
+            -destination 'generic/platform=iOS Simulator' \
+            -quiet
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --generate-notes

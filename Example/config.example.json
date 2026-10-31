@@ -1,0 +1,6 @@
+{
+  "baseURL": "https://chat.example.com",
+  "inboxIdentifier": "YOUR_INBOX_IDENTIFIER",
+  "inboxID": 0,
+  "hmacToken": "YOUR_INBOX_HMAC_TOKEN"
+}
