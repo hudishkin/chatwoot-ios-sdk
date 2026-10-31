@@ -49,11 +49,12 @@ final class ChatViewModel: ObservableObject {
             }
         })
 
-        tasks.append(Task { [weak self, typing = source.typing] in
-            let stream = typing.removeDuplicates().values
-            for await typingByConversation in stream {
+        tasks.append(Task { [weak self, typing = source.typing, conversationId = source.conversationId] in
+            let stream = Publishers.CombineLatest(conversationId.removeDuplicates(), typing.removeDuplicates())
+                .map { id, typingByConversation in id.flatMap { typingByConversation[$0] } == true }
+                .values
+            for await typing in stream {
                 guard let self else { return }
-                let typing = self.currentConversation.flatMap { typingByConversation[$0] } == true
                 if typing != self.state.typing { self.state.typing = typing }
             }
         })

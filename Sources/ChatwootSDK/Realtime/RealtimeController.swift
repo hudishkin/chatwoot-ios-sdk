@@ -61,8 +61,9 @@ actor RealtimeController {
         guard bindTasks.isEmpty else { return }
         _ = store.read()
 
-        bindTasks.append(Task { [weak self, status = socket.status] in
-            for await value in status.values {
+        let status = socket.status.eagerValues()
+        bindTasks.append(Task { [weak self] in
+            for await value in status {
                 guard let self else { return }
                 switch value {
                 case .failed: self.failedHandshakes.send(self.failedHandshakes.value + 1)
@@ -90,14 +91,16 @@ actor RealtimeController {
             }
         })
 
-        bindTasks.append(Task { [weak self, disconnects = cable.terminalDisconnects] in
-            for await _ in disconnects.values {
+        let disconnects = cable.terminalDisconnects.eagerValues()
+        bindTasks.append(Task { [weak self] in
+            for await _ in disconnects {
                 await self?.onTerminalDisconnect()
             }
         })
 
-        bindTasks.append(Task { [weak self, events = cable.events] in
-            for await event in events.values {
+        let events = cable.events.eagerValues()
+        bindTasks.append(Task { [weak self] in
+            for await event in events {
                 guard let self else { return }
                 let receivedUnder = await self.epoch
                 do {

@@ -6,7 +6,6 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [
         .iOS(.v15),
-        // Нужно только для сборки и запуска тестов на macOS-хосте.
         .macOS(.v12)
     ],
     products: [
