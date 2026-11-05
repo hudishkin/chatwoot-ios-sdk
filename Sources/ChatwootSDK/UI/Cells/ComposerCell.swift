@@ -22,7 +22,7 @@ struct ComposerCell: View {
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(colors.scheme.outlineVariant)
+                .fill(colors.composerDivider)
                 .frame(height: 0.5)
             HStack(alignment: .center, spacing: 4) {
                 if !visibleMenu.isEmpty {
@@ -66,7 +66,7 @@ struct ComposerCell: View {
                 } else {
                     Image(systemName: "paperclip")
                         .font(.system(size: 18))
-                        .foregroundColor(colors.scheme.onSurfaceVariant)
+                        .foregroundColor(colors.composerPlaceholder)
                 }
             }
             .frame(width: Spacing.touchTarget, height: Spacing.touchTarget)
@@ -139,7 +139,7 @@ struct ComposerCell: View {
             if text.isEmpty {
                 Text(ChatStrings.composerHint)
                     .font(.body)
-                    .foregroundColor(colors.scheme.onSurfaceVariant)
+                    .foregroundColor(colors.composerPlaceholder)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .allowsHitTesting(false)
@@ -153,7 +153,7 @@ struct ComposerCell: View {
                 .padding(.vertical, 2)
                 .scrollContentBackgroundHidden()
         }
-        .foregroundColor(colors.scheme.onSurface)
+        .foregroundColor(colors.composerText)
         .background(colors.composerField)
         .clipShape(RoundedRectangle(cornerRadius: ComposerCell.fieldCorner))
         .accessibilityLabel(ChatStrings.composerHint)
@@ -174,9 +174,9 @@ struct ComposerCell: View {
                                 .font(.system(size: 18))
                         }
                     }
-                    .foregroundColor(colors.scheme.onPrimary)
+                    .foregroundColor(colors.onComposerSend)
                     .frame(width: 40, height: 40)
-                    .background(sending ? colors.scheme.primary.opacity(0.6) : colors.scheme.primary)
+                    .background(sending ? colors.composerSend.opacity(0.6) : colors.composerSend)
                     .clipShape(Circle())
                 }
                 .buttonStyle(.plain)

@@ -184,7 +184,7 @@ private struct RatingMark: View {
             let filled = rating != nil && value <= (rating ?? 0)
             Image(systemName: filled ? "star.fill" : "star")
                 .font(.system(size: size * 0.8))
-                .foregroundColor(filled ? colors.scheme.primary : colors.scheme.outline)
+                .foregroundColor(filled ? colors.accent : colors.scheme.outline)
                 .frame(width: size, height: size)
         case .emoji:
             let picked = value == rating

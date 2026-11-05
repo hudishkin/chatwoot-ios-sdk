@@ -1,8 +1,9 @@
 import SwiftUI
 
 extension Chatwoot {
-    /// Ready-made chat screen with the given theme; the screen assembles once the
-    /// session is identified (until then it shows a loading indicator).
+    /// Ready-made chat screen. `theme` supplies the light and dark colors
+    /// (see `ChatwootTheme`). The screen assembles once the session is
+    /// identified; until then it shows a loading indicator.
     public static func chatView(
         request: ChatRequest = .default,
         theme: ChatwootTheme = .default
@@ -11,9 +12,10 @@ extension Chatwoot {
     }
 }
 
-/// Ready-made conversation screen. Embed it into the host's `NavigationStack` —
-/// the host owns the title bar and the back button; the SDK only sets
-/// [ChatRequest.title] as `.navigationTitle`.
+/// Ready-made conversation screen. Embed it into the host's `NavigationStack`.
+/// The host owns the navigation container and the back button. While the chat
+/// is visible it paints that bar from `navigationBar` and `onNavigationBar`,
+/// and sets [ChatRequest.title] as `.navigationTitle`.
 ///
 /// ```swift
 /// NavigationStack { Chatwoot.chatView() }
@@ -34,6 +36,10 @@ public struct ChatwootChatView: View {
         ChatwootChatContent(request: request)
             .environment(\.chatColors, resolved.colors)
             .environment(\.colorScheme, resolved.dark ? .dark : .light)
+            .chatNavigationBar(
+                background: resolved.colors.navigationBar,
+                foreground: resolved.colors.onNavigationBar
+            )
     }
 }
 

@@ -50,31 +50,38 @@ extension Color {
 
 struct ResolvedChatColors {
     let scheme: ThemePalette.Scheme
+    let accent, onAccent: Color
 
     let chatBackground, outgoingBubble, onOutgoingBubble, outgoingMeta, outgoingLink: Color
     let incomingBubble, onIncomingBubble, incomingMeta, incomingLink: Color
     let systemText, failed, failedContainer, onFailedContainer: Color
     let bannerContainer, onBannerContainer: Color
-    let composerContainer, composerField: Color
-    let unreadDivider: Color
+    let composerContainer, composerField, composerText, composerPlaceholder: Color
+    let composerSend, onComposerSend, composerDivider: Color
+    let unreadDivider, onUnreadDivider: Color
     let avatarPlaceholder, onAvatarPlaceholder: Color
     let dateChip, onDateChip: Color
+    let navigationBar, onNavigationBar: Color
 }
 
 extension ChatwootColors {
     func resolve(dark: Bool) -> ResolvedChatColors {
         let scheme = dark ? ThemePalette.dark : ThemePalette.light
+        let accent = accent ?? scheme.primary
+        let onAccent = onAccent ?? scheme.onPrimary
         return ResolvedChatColors(
             scheme: scheme,
+            accent: accent,
+            onAccent: onAccent,
             chatBackground: chatBackground ?? scheme.background,
-            outgoingBubble: outgoingBubble ?? scheme.primary,
-            onOutgoingBubble: onOutgoingBubble ?? scheme.onPrimary,
-            outgoingMeta: outgoingMeta ?? scheme.onPrimary.opacity(outgoingMetaAlpha),
-            outgoingLink: outgoingLink ?? scheme.onPrimary,
+            outgoingBubble: outgoingBubble ?? accent,
+            onOutgoingBubble: onOutgoingBubble ?? onAccent,
+            outgoingMeta: outgoingMeta ?? onAccent.opacity(outgoingMetaAlpha),
+            outgoingLink: outgoingLink ?? onAccent,
             incomingBubble: incomingBubble ?? scheme.surface,
             onIncomingBubble: onIncomingBubble ?? scheme.onSurface,
             incomingMeta: incomingMeta ?? scheme.onSurfaceVariant,
-            incomingLink: incomingLink ?? scheme.primary,
+            incomingLink: incomingLink ?? accent,
             systemText: systemText ?? scheme.onSurfaceVariant,
             failed: failed ?? scheme.error,
             failedContainer: failedContainer ?? scheme.errorContainer,
@@ -83,11 +90,19 @@ extension ChatwootColors {
             onBannerContainer: onBannerContainer ?? scheme.onTertiaryContainer,
             composerContainer: composerContainer ?? scheme.surface,
             composerField: composerField ?? scheme.background,
-            unreadDivider: unreadDivider ?? scheme.primary,
+            composerText: composerText ?? scheme.onSurface,
+            composerPlaceholder: composerPlaceholder ?? scheme.onSurfaceVariant,
+            composerSend: composerSend ?? accent,
+            onComposerSend: onComposerSend ?? onAccent,
+            composerDivider: composerDivider ?? scheme.outlineVariant,
+            unreadDivider: unreadDivider ?? accent,
+            onUnreadDivider: onUnreadDivider ?? onAccent,
             avatarPlaceholder: avatarPlaceholder ?? scheme.primaryContainer,
             onAvatarPlaceholder: onAvatarPlaceholder ?? scheme.onPrimaryContainer,
             dateChip: dateChip ?? scheme.secondaryContainer,
-            onDateChip: onDateChip ?? scheme.onSecondaryContainer
+            onDateChip: onDateChip ?? scheme.onSecondaryContainer,
+            navigationBar: navigationBar ?? scheme.surface,
+            onNavigationBar: onNavigationBar ?? scheme.onSurface
         )
     }
 }
