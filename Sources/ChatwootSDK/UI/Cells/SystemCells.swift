@@ -197,7 +197,7 @@ struct NewMessagesChip: View {
                 Text(ChatStrings.newMessages(count))
                     .font(.subheadline.weight(.medium))
             }
-            .foregroundColor(colors.scheme.onPrimary)
+            .foregroundColor(colors.onUnreadDivider)
             .padding(.leading, 10)
             .padding(.trailing, 14)
             .padding(.vertical, 8)
