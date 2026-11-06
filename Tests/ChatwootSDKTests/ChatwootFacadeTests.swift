@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import ChatwootSDK
 
@@ -17,9 +18,19 @@ final class ChatwootFacadeTests: XCTestCase {
         super.tearDown()
     }
 
-    private func installCore() async throws -> ChatwootCore {
+    private func installCore(
+        activity: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher(),
+        unreadPollIntervalMs: UInt64 = RealtimeController.pollIntervalMs
+    ) async throws -> ChatwootCore {
         let store = SessionStore(directory: directory)
-        let core = ChatwootCore(config: try Fixtures.makeConfig(), api: api, sessionStore: store, dataDirectory: directory)
+        let core = ChatwootCore(
+            config: try Fixtures.makeConfig(),
+            api: api,
+            sessionStore: store,
+            dataDirectory: directory,
+            appActivity: activity,
+            unreadPollIntervalMs: unreadPollIntervalMs
+        )
         Chatwoot.installForTesting(core)
         return core
     }
@@ -120,6 +131,43 @@ final class ChatwootFacadeTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+    }
+
+    func testUnreadCountFollowsLocalMessagesAndClearsOnReset() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        var latest = -1
+        let subscription = Chatwoot.unreadCount.sink { latest = $0 }
+        defer { subscription.cancel() }
+        XCTAssertEqual(latest, 0)
+
+        let core = try await installCore()
+        let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        assertSuccess(result)
+        let database = await core.stack?.database
+        try database?.conversations.upsert(StorageFixtures.conversation(7, contactLastSeenAt: 100))
+        try database?.messages.applyServerMessage(
+            StorageFixtures.message(11, conversationId: 7, content: "ответ", type: 1, createdAt: 200),
+            attachments: [],
+            echoId: nil
+        )
+        await eventually { latest == 1 }
+
+        await Chatwoot.reset()
+        await eventually { latest == 0 }
+    }
+
+    func testReturnToForegroundSyncsInbox() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let activity = CurrentValueSubject<Bool, Never>(false)
+        _ = try await installCore(activity: activity.eraseToAnyPublisher())
+        let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        assertSuccess(result)
+        await eventually { self.api.conversationsCalls == 1 }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        activity.send(true)
+        await eventually { self.api.conversationsCalls == 2 }
     }
 
     func testSecondInitializeIsIgnored() throws {

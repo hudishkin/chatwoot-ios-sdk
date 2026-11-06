@@ -67,6 +67,16 @@ NavigationStack {
 
 Call `await Chatwoot.reset()` when the user logs out.
 
+Unread agent replies and unanswered surveys are `Chatwoot.unreadCount`. It replays the latest count (`0` before `identify` and after `reset`). The SDK refreshes it on identify, when the app returns to the foreground, and on a timer while realtime is down. The host only subscribes:
+
+```swift
+Chatwoot.unreadCount
+    .receive(on: DispatchQueue.main)
+    .sink { count in
+        // Badge on the chat entry point.
+    }
+```
+
 ## Appearance
 
 The chat has two color sets, light and dark. `ChatwootTheme` picks which one is on screen:
