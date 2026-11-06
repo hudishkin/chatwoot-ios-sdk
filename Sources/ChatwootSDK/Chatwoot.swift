@@ -9,6 +9,22 @@ import Foundation
 public enum Chatwoot {
     private static let installLock = NSLock()
     private static var installedCore: ChatwootCore?
+    private static let unreadSubject = CurrentValueSubject<Int, Never>(0)
+
+    /// Unread agent replies and unanswered surveys for the identified user.
+    /// Replays the latest count to each new subscriber. `0` before a successful
+    /// `identify` and after `reset`.
+    ///
+    /// The SDK keeps the count current: a sync when `identify` succeeds, another
+    /// when the app returns to the foreground, and a timer while the app is
+    /// active and realtime is not delivering events. The host only subscribes.
+    public static var unreadCount: AnyPublisher<Int, Never> {
+        unreadSubject.removeDuplicates().eraseToAnyPublisher()
+    }
+
+    static func noteUnread(_ count: Int) {
+        unreadSubject.send(count)
+    }
 
     static var core: ChatwootCore? {
         installLock.lock()
@@ -57,6 +73,7 @@ public enum Chatwoot {
         installLock.lock()
         installedCore = core
         installLock.unlock()
+        unreadSubject.send(0)
     }
 }
 
@@ -67,6 +84,10 @@ actor ChatwootCore {
     private let storeOverride: SessionStore?
     private let directoryOverride: URL?
     private let socketOverride: (any SocketManaging)?
+    private let appActivity: AnyPublisher<Bool, Never>
+    private let unreadPollIntervalMs: UInt64
+    private var unreadMaintenance: UnreadMaintenance?
+    private var unreadBridge: AnyCancellable?
 
     private(set) lazy var dataDirectory: URL = directoryOverride ?? SDKDirectory.data()
     private(set) lazy var sessionStore: SessionStore = storeOverride ?? SessionStore(directory: dataDirectory)
@@ -106,17 +127,23 @@ actor ChatwootCore {
         api: ChatwootAPI? = nil,
         sessionStore: SessionStore? = nil,
         dataDirectory: URL? = nil,
-        socket: (any SocketManaging)? = nil
+        socket: (any SocketManaging)? = nil,
+        appActivity: AnyPublisher<Bool, Never>? = nil,
+        unreadPollIntervalMs: UInt64 = RealtimeController.pollIntervalMs
     ) {
         self.config = config
         self.apiOverride = api
         self.storeOverride = sessionStore
         self.directoryOverride = dataDirectory
         self.socketOverride = socket
+        self.appActivity = appActivity ?? AppActivity.publisher()
+        self.unreadPollIntervalMs = unreadPollIntervalMs
     }
 
     deinit {
         guardTasks.forEach { $0.cancel() }
+        unreadMaintenance?.stop()
+        unreadBridge?.cancel()
     }
 
     var session: Session? { sessionStore.current }
@@ -147,6 +174,9 @@ actor ChatwootCore {
             await stack.realtime.stopNow()
         }
         networkMonitor.stop()
+        unreadMaintenance?.stop()
+        unreadMaintenance = nil
+        Chatwoot.noteUnread(0)
         do {
             try await wipeLocalData()
             CWLog.i(.auth, "reset")
@@ -172,9 +202,28 @@ actor ChatwootCore {
         networkMonitor.start { [weak self] in
             Task { await self?.socket.networkAvailable() }
         }
+        startUnreadMaintenance(stack)
         Task { [sync = stack.sync] in
             _ = await sync.sync(.identify)
         }
+    }
+
+    private func startUnreadMaintenance(_ stack: SessionStack) {
+        if unreadMaintenance == nil {
+            let sync = stack.sync
+            let realtime = stack.realtime
+            unreadMaintenance = UnreadMaintenance(
+                activity: appActivity,
+                pollIntervalMs: unreadPollIntervalMs,
+                isRealtimeLive: { realtime.isLive },
+                sync: { _ = await sync.sync(.refresh) }
+            )
+        }
+        unreadMaintenance?.start()
+    }
+
+    private func bindUnread(_ tracker: UnreadTracker) {
+        unreadBridge = tracker.unread.sink { Chatwoot.noteUnread($0) }
     }
 
     private func requireStack() async -> SessionStack? {
@@ -248,6 +297,7 @@ actor ChatwootCore {
             await sendQueue.start()
             await realtime.bind()
             await unreadTracker.start()
+            bindUnread(unreadTracker)
             observeSessionGuard(verifier: verifier)
             let assembled = SessionStack(
                 database: database, sync: sync, sendQueue: sendQueue, realtime: realtime,

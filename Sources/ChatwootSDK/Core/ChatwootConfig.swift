@@ -5,10 +5,12 @@ import Foundation
 /// while the chat screen is visible.
 public enum ChatwootRealtime: Sendable {
     /// While the app is in the foreground: new agent replies and the unread count
-    /// arrive instantly anywhere in the app. The default.
+    /// arrive instantly anywhere in the app. The default. The host reads
+    /// `Chatwoot.unreadCount`; the SDK refreshes it itself.
     case whileForeground
     /// Only while the chat screen is open. Elsewhere the unread count is updated
-    /// by a REST sync when the app returns to the foreground and by `refresh()`.
+    /// by a REST sync when the app returns to the foreground and, while realtime
+    /// is down, on a timer. The host reads `Chatwoot.unreadCount`.
     case whileChatOpen
 }
 
