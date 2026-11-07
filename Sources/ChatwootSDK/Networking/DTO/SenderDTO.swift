@@ -14,6 +14,14 @@ public struct SenderDTO: Codable, Equatable {
     /// Present only on contact senders (`Contact#push_event_data`).
     public let identifier: String?
 
+    /// The name the chat shows: the agent's display name when set (`available_name`), otherwise the full name.
+    public var displayName: String? {
+        if let availableName, !availableName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return availableName
+        }
+        return name
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, name, type, email, thumbnail, identifier
         case availableName = "available_name"

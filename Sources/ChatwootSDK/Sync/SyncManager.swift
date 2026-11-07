@@ -348,13 +348,3 @@ private extension SyncManager.SyncTrigger {
         }
     }
 }
-
-private extension ChatwootError {
-    var logLabel: String {
-        switch self {
-        case .http(let code): return "http \(code)"
-        case .network: return "network"
-        default: return "\(self)"
-        }
-    }
-}

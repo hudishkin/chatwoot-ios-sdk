@@ -45,12 +45,13 @@ func feedMine(
 func feedTemplate(
     _ id: Int,
     at: Int? = nil,
-    text: String? = "We reply within a day"
+    text: String? = "We reply within a day",
+    contentType: String = "text"
 ) -> MessageWithAttachments {
     MessageWithAttachments(
         message: StoredMessage(
             id: id, conversationId: feedConversation, content: text, type: 3,
-            contentType: "text", createdAt: at ?? feedNoon + id, isMine: false,
+            contentType: contentType, createdAt: at ?? feedNoon + id, isMine: false,
             isDeleted: false, senderName: "Bot", senderType: "agent_bot",
             surveyDisplay: nil, surveyRating: nil
         ),

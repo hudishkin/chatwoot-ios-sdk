@@ -193,6 +193,40 @@ final class SendQueueTests: XCTestCase {
         XCTAssertTrue(failed, "контакт не подтверждён (по умолчанию unknown) — отправка сбойная, история хранится")
         XCTAssertNotNil(try database.conversations.get(7), "разговор не удалён без подтверждения контакта")
     }
+
+    func testSendWithoutSessionFailsWhenNobodyWasIdentified() async {
+        store.clear()
+        await start()
+
+        await queue.enqueueText("привет")
+        let failed = await waitFor { try self.database.pending.get("echo-1")?.state == .failed }
+
+        XCTAssertTrue(failed)
+        XCTAssertEqual(queue.failures.value["echo-1"], .session)
+        XCTAssertEqual(api.createMessageCalls.count, 0)
+    }
+
+    func testReopenResolvedPostsIntoResolvedConversation() async {
+        try? database.conversations.upsert(StorageFixtures.conversation(7, status: "resolved", lastActivityAt: 10))
+        let reopen = SendQueue(
+            api: api, inboxIdentifier: "inbox-1", inboxId: 1, store: store,
+            pendingDAO: database.pending, messageDAO: database.messages, conversationDAO: database.conversations,
+            sync: sync, sessionGuard: SessionGuard(), attachmentsDir: attachmentsDir,
+            now: { [unowned self] in self.clock },
+            newEchoId: { [unowned self] in self.echoCounter += 1; return "echo-\(self.echoCounter)" },
+            realtimeLive: { true },
+            reopenResolved: true
+        )
+        await reopen.start()
+        api.createMessageStub = .success(messageDTO(201, echoID: "echo-1"))
+
+        await reopen.enqueueText("ещё")
+        let delivered = await waitFor { try self.database.messages.get(201) != nil }
+
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(api.createConversationCalls, 0, "resolved переиспользуется")
+        XCTAssertEqual(api.createMessageCalls.first?.conversationID, 7)
+    }
 }
 
 final class DuplicateMatcherTests: XCTestCase {

@@ -157,7 +157,8 @@ public struct ChatwootColors: Equatable, Sendable {
 /// `lightChatColors` is used when the resolved appearance is light, and
 /// `darkChatColors` when it is dark. `darkMode` picks that appearance: follow
 /// the system, or pin light or dark. Tokens left unset fall back to the SDK
-/// palette of the resolved appearance.
+/// palette of the resolved appearance. `agentAvatar` replaces the initials of
+/// every support agent; `nil` keeps them.
 public struct ChatwootTheme: Equatable, Sendable {
     /// Colors used while the chat is light.
     public var lightChatColors: ChatwootColors
@@ -165,17 +166,29 @@ public struct ChatwootTheme: Equatable, Sendable {
     public var darkChatColors: ChatwootColors
     /// How the chat chooses between `lightChatColors` and `darkChatColors`.
     public var darkMode: ChatwootDarkMode
+    /// Image drawn, cropped to a circle, as the avatar of every support agent.
+    /// `nil` keeps the initials.
+    public var agentAvatar: Image?
 
     public init(
         lightChatColors: ChatwootColors = .derived,
         darkChatColors: ChatwootColors = .derived,
-        darkMode: ChatwootDarkMode = .followSystem
+        darkMode: ChatwootDarkMode = .followSystem,
+        agentAvatar: Image? = nil
     ) {
         self.lightChatColors = lightChatColors
         self.darkChatColors = darkChatColors
         self.darkMode = darkMode
+        self.agentAvatar = agentAvatar
     }
 
     /// Default SDK look: neutral palette with a teal accent, system dark mode.
     public static let `default` = ChatwootTheme()
+
+    public static func == (lhs: ChatwootTheme, rhs: ChatwootTheme) -> Bool {
+        lhs.lightChatColors == rhs.lightChatColors
+            && lhs.darkChatColors == rhs.darkChatColors
+            && lhs.darkMode == rhs.darkMode
+            && (lhs.agentAvatar == nil) == (rhs.agentAvatar == nil)
+    }
 }

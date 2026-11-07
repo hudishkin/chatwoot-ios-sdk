@@ -26,6 +26,7 @@ enum ChatItem: Equatable {
     case mine(Mine)
     case theirs(Theirs)
     case system(System)
+    case autoReply(AutoReply)
     case survey(Survey)
     case dateHeader(DateHeader)
 
@@ -35,6 +36,7 @@ enum ChatItem: Equatable {
         let text: String?
         let attachment: AttachmentUi?
         let status: SendStatus
+        let failure: SendFailure?
         let createdAt: Int
         let run: RunPosition
         let showMeta: Bool
@@ -55,6 +57,13 @@ enum ChatItem: Equatable {
     }
 
     struct System: Equatable {
+        let key: String
+        let text: String
+        let createdAt: Int
+    }
+
+    /// An automatic reply of the inbox (a text template: out-of-office, greeting).
+    struct AutoReply: Equatable {
         let key: String
         let text: String
         let createdAt: Int
@@ -82,6 +91,7 @@ enum ChatItem: Equatable {
         case .mine(let item): return item.key
         case .theirs(let item): return item.key
         case .system(let item): return item.key
+        case .autoReply(let item): return item.key
         case .survey(let item): return item.key
         case .dateHeader(let item): return item.key
         }
@@ -106,6 +116,7 @@ extension ChatItem {
         case .mine(let item): return item.echoId == nil ? item.createdAt : nil
         case .theirs(let item): return item.createdAt
         case .system(let item): return item.createdAt
+        case .autoReply(let item): return item.createdAt
         case .survey(let item): return item.createdAt
         case .dateHeader: return nil
         }
@@ -120,8 +131,10 @@ extension Array where Element == ChatItem {
     func unseenAgentRows(seenKey: String?) -> Int {
         guard let seen = firstIndex(where: { $0.key == seenKey }), seen > 0 else { return 0 }
         return self[..<seen].reduce(0) { count, item in
-            if case .theirs = item { return count + 1 }
-            return count
+            switch item {
+            case .theirs, .autoReply: return count + 1
+            default: return count
+            }
         }
     }
 }

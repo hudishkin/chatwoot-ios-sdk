@@ -23,10 +23,16 @@ actor SendQueue {
     private let contactCheck: (Session) async -> ContactVerdict
     private let realtimeLive: () -> Bool
     private let fileManager: FileManager
+    private let sessionRecoverer: SessionRecoverer
+    private let sendDeadlineMs: UInt64
+    private let identifyCalled: () -> Bool
+    private let reopenResolved: Bool
+    private var warnedWithoutIdentify = false
 
     private var generation: SessionGeneration { sync.generation }
 
     nonisolated var inFlight: CurrentValueSubject<Set<String>, Never> { tracker.sending }
+    nonisolated var failures: CurrentValueSubject<[String: SendFailure], Never> { tracker.failures }
 
     private let outbox: AsyncStream<Dispatch>.Continuation
     private let outboxStream: AsyncStream<Dispatch>
@@ -49,7 +55,11 @@ actor SendQueue {
         tracker: InFlightTracker = InFlightTracker(),
         contactCheck: @escaping (Session) async -> ContactVerdict = { _ in .unknown },
         realtimeLive: @escaping () -> Bool = { false },
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        sessionRecoverer: SessionRecoverer? = nil,
+        sendDeadlineMs: UInt64 = SendQueue.sendDeadlineMs,
+        identifyCalled: @escaping () -> Bool = { true },
+        reopenResolved: Bool = false
     ) {
         self.api = api
         self.inboxIdentifier = inboxIdentifier
@@ -67,6 +77,10 @@ actor SendQueue {
         self.contactCheck = contactCheck
         self.realtimeLive = realtimeLive
         self.fileManager = fileManager
+        self.sessionRecoverer = sessionRecoverer ?? SessionRecoverer(identifyOnce: { .notIdentified })
+        self.sendDeadlineMs = sendDeadlineMs
+        self.identifyCalled = identifyCalled
+        self.reopenResolved = reopenResolved
 
         var continuation: AsyncStream<Dispatch>.Continuation!
         let stream = AsyncStream<Dispatch> { continuation = $0 }
@@ -105,7 +119,7 @@ actor SendQueue {
         )
         guard insert(owner: owner, row: row) else { return }
         CWLog.i(.send, "enqueue echo=\(echoId) kind=\(kind.rawValue)")
-        dispatch(Dispatch(echoId: echoId, retry: false, owner: owner))
+        await dispatch(echoId: echoId, retry: false, owner: owner)
     }
 
     @discardableResult
@@ -140,7 +154,7 @@ actor SendQueue {
                 return .failure(.unknown)
             }
             CWLog.i(.send, "enqueue echo=\(echoId) kind=file")
-            dispatch(Dispatch(echoId: echoId, retry: false, owner: owner))
+            await dispatch(echoId: echoId, retry: false, owner: owner)
             return .success(())
         }
     }
@@ -163,7 +177,11 @@ actor SendQueue {
         }
         guard queued else { return }
         CWLog.i(.send, "retry echo=\(echoId)")
-        dispatch(Dispatch(echoId: echoId, retry: true, owner: owner))
+        await dispatch(echoId: echoId, retry: true, owner: owner)
+    }
+
+    func forgetFailures() {
+        tracker.clearFailures()
     }
 
     // MARK: - Recovery
@@ -192,34 +210,56 @@ actor SendQueue {
         if orphans > 0 { CWLog.i(.send, "restart: \(orphans) orphan attachment dirs deleted") }
     }
 
-    private func dispatch(_ item: Dispatch) {
-        tracker.markSending(item.echoId)
-        outbox.yield(item)
+    private func dispatch(echoId: String, retry: Bool, owner: Int) async {
+        if !retry && !identifyCalled() && !warnedWithoutIdentify {
+            warnedWithoutIdentify = true
+            CWLog.w(.send, "send without identify echo=\(echoId)")
+        }
+        let ticket = await sessionRecoverer.ticket()
+        tracker.markSending(echoId)
+        outbox.yield(Dispatch(echoId: echoId, retry: retry, owner: owner, ticket: ticket))
     }
 
     private func process(_ item: Dispatch) async {
         let started = now()
         let echoId = item.echoId
-        switch await attempt(echoId, retry: item.retry, owner: item.owner) {
-        case .delivered:
-            tracker.markDelivered(echoId)
-            CWLog.i(.send, "ack echo=\(echoId) via=rest ms=\(now() - started)")
-        case .duplicate:
-            tracker.markDelivered(echoId)
-            CWLog.i(.send, "duplicate found echo=\(echoId), not posted again")
-        case .dropped:
+        do {
+            switch try await attempt(echoId, retry: item.retry, owner: item.owner, ticket: item.ticket) {
+            case .delivered:
+                tracker.markDelivered(echoId)
+                CWLog.i(.send, "ack echo=\(echoId) via=rest ms=\(now() - started)")
+            case .duplicate:
+                tracker.markDelivered(echoId)
+                CWLog.i(.send, "duplicate found echo=\(echoId), not posted again")
+            case .dropped:
+                tracker.markBroken(echoId)
+                CWLog.w(.send, "dropped echo=\(echoId): local data was reset")
+            case .failed(let error):
+                CWLog.w(.send, "fail echo=\(echoId) \(error.logLabel)")
+                markFailed(echoId, error.failure)
+            case .sessionGone:
+                CWLog.w(.send, "fail echo=\(echoId) session")
+                markFailed(echoId, .session)
+            case .conversationGone:
+                CWLog.w(.send, "fail echo=\(echoId) http 404")
+                markFailed(echoId, .other)
+            case .noSession(let reason):
+                CWLog.w(.send, "fail echo=\(echoId) no session \(reason)")
+                markFailed(echoId, .session)
+            }
+        } catch is SendTimeout {
+            CWLog.w(.send, "fail echo=\(echoId) timeout ms=\(sendDeadlineMs)")
+            markFailed(echoId, .timeout)
+        } catch is CancellationError {
             tracker.markBroken(echoId)
-            CWLog.w(.send, "dropped echo=\(echoId): local data was reset")
-        case .failed(let error):
-            CWLog.w(.send, "fail echo=\(echoId) \(error.logLabel)")
-            markFailed(echoId)
-        case .conversationGone:
-            CWLog.w(.send, "fail echo=\(echoId) http 404")
-            markFailed(echoId)
+        } catch {
+            CWLog.w(.send, "fail echo=\(echoId) \(type(of: error))")
+            markFailed(echoId, .other)
         }
     }
 
-    private func markFailed(_ echoId: String) {
+    private func markFailed(_ echoId: String, _ reason: SendFailure) {
+        tracker.recordFailure(echoId, reason)
         do {
             try pendingDAO.setState(echoId, state: .failed)
         } catch {
@@ -228,7 +268,23 @@ actor SendQueue {
         tracker.markBroken(echoId)
     }
 
-    private func attempt(_ echoId: String, retry: Bool, owner: Int) async -> Outcome {
+    /// Each try runs under `sendDeadlineMs`. A forced reidentify between the two tries is outside both deadlines.
+    private func attempt(_ echoId: String, retry: Bool, owner: Int, ticket: RecoveryTicket) async throws -> Outcome {
+        let first = try await withDeadline(ms: sendDeadlineMs) {
+            await self.firstTry(echoId, retry: retry, owner: owner, ticket: ticket)
+        }
+        guard case .sessionGone = first else { return first }
+        switch await reidentifySession(echoId, owner: owner, ticket: ticket, gone: first) {
+        case .ready(let session):
+            return try await withDeadline(ms: sendDeadlineMs) {
+                await self.secondTry(echoId, session: session, retry: retry, owner: owner)
+            }
+        case .missing(let outcome):
+            return outcome
+        }
+    }
+
+    private func firstTry(_ echoId: String, retry: Bool, owner: Int, ticket: RecoveryTicket) async -> Outcome {
         let read: (StoredPendingMessage?, Session?)?
         do {
             read = try generation.ifCurrent(owner) {
@@ -238,14 +294,45 @@ actor SendQueue {
             return .failed(.unknown)
         }
         guard let read else { return .dropped }
-        guard var pending = read.0 else { return .delivered }
-        guard let session = read.1 else { return .failed(.unknown) }
+        guard let pending = read.0 else { return .delivered }
+        let session: Session
+        if let existing = read.1 {
+            session = existing
+        } else {
+            switch await restoreSession(echoId, owner: owner, ticket: ticket) {
+            case .ready(let restored): session = restored
+            case .missing(let outcome): return outcome
+            }
+        }
+        return await deliver(pending, session: session, retry: retry, owner: owner)
+    }
+
+    private func secondTry(_ echoId: String, session: Session, retry: Bool, owner: Int) async -> Outcome {
+        let read: StoredPendingMessage??
+        do {
+            read = try generation.ifCurrent(owner) { try pendingDAO.get(echoId) }
+        } catch {
+            return .failed(.unknown)
+        }
+        guard let read else { return .dropped }
+        guard let pending = read else { return .delivered }
+        let outcome = await deliver(pending, session: session, retry: retry, owner: owner)
+        if case .sessionGone = outcome {
+            return .noSession("reason=stale_after_reidentify")
+        }
+        return outcome
+    }
+
+    private func deliver(_ pending: StoredPendingMessage, session: Session, retry: Bool, owner: Int) async -> Outcome {
+        var pending = pending
         if retry {
             let synced = await sync.sync(.retry)
-            if case .failure(let error) = synced { return .failed(error) }
+            if case .failure(let error) = synced {
+                return await suspect(error, session: session, owner: owner)
+            }
             let reread: StoredPendingMessage??
             do {
-                reread = try generation.ifCurrent(owner) { try pendingDAO.get(echoId) }
+                reread = try generation.ifCurrent(owner) { try pendingDAO.get(pending.echoId) }
             } catch {
                 return .failed(.unknown)
             }
@@ -256,7 +343,7 @@ actor SendQueue {
             if pending.posted, let known, let duplicate = findDuplicate(pending: pending, conversationId: known) {
                 let recorded: Bool
                 do {
-                    recorded = try generation.ifCurrent(owner) { try messageDAO.recordEcho(messageId: duplicate.id, echoId: echoId) } != nil
+                    recorded = try generation.ifCurrent(owner) { try messageDAO.recordEcho(messageId: duplicate.id, echoId: pending.echoId) } != nil
                 } catch {
                     return .failed(.unknown)
                 }
@@ -271,12 +358,11 @@ actor SendQueue {
         case .healthy:
             break
         case .stale:
-            sessionGuard.onHttp(code: 404, path: Self.messagesPath)
-            return .failed(.http(code: 404))
+            return .sessionGone(session, code: 404)
         case .unknown:
             return .failed(.http(code: 404))
         }
-        CWLog.w(.send, "conversation gone echo=\(echoId), resolving again")
+        CWLog.w(.send, "conversation gone echo=\(pending.echoId), resolving again")
         let deleted: Bool
         do {
             deleted = try await sync.applyRealtime(epoch: owner) {
@@ -294,6 +380,61 @@ actor SendQueue {
         return second
     }
 
+    private func suspect(_ error: ChatwootError, session: Session, owner: Int) async -> Outcome {
+        guard generation.isCurrent(owner) else { return .dropped }
+        guard case .http(let code) = error, code == 401 || code == 404 else { return .failed(error) }
+        switch await checkContact(session) {
+        case .stale: return .sessionGone(session, code: code)
+        case .healthy, .unknown: return .failed(error)
+        }
+    }
+
+    private func reidentifySession(_ echoId: String, owner: Int, ticket: RecoveryTicket, gone: Outcome) async -> Restored {
+        guard generation.isCurrent(owner) else { return .missing(.dropped) }
+        guard case .sessionGone(let stale, let code) = gone else { return .missing(.failed(.unknown)) }
+        CWLog.i(.send, "session gone echo=\(echoId), reidentifying")
+        let recovery = await sessionRecoverer.reidentify(stale: stale, since: ticket)
+        guard generation.isCurrent(owner) else { return .missing(.dropped) }
+        switch recovery {
+        case .aborted:
+            return .missing(.dropped)
+        case .notIdentified:
+            sessionGuard.onHttp(code: code, path: Self.contactPath)
+            return .missing(.noSession("reason=not_identified"))
+        case .failed(let error):
+            return .missing(.noSession("reidentify \(error.logLabel)"))
+        case .capped:
+            return .missing(.noSession("reason=reidentify_capped"))
+        case .done:
+            break
+        }
+        let session = generation.isCurrent(owner) ? store.read() : nil
+        if let session { return .ready(session) }
+        return .missing(generation.isCurrent(owner) ? .noSession("reason=lost") : .dropped)
+    }
+
+    private func restoreSession(_ echoId: String, owner: Int, ticket: RecoveryTicket) async -> Restored {
+        guard generation.isCurrent(owner) else { return .missing(.dropped) }
+        CWLog.i(.send, "no session echo=\(echoId), identifying")
+        let recovery = await sessionRecoverer.recover(since: ticket)
+        guard generation.isCurrent(owner) else { return .missing(.dropped) }
+        switch recovery {
+        case .aborted:
+            return .missing(.dropped)
+        case .notIdentified:
+            return .missing(.noSession("reason=not_identified"))
+        case .failed(let error):
+            return .missing(.noSession("identify \(error.logLabel)"))
+        case .capped:
+            return .missing(.noSession("reason=reidentify_capped"))
+        case .done:
+            break
+        }
+        let session = generation.isCurrent(owner) ? store.read() : nil
+        if let session { return .ready(session) }
+        return .missing(generation.isCurrent(owner) ? .noSession("reason=lost") : .dropped)
+    }
+
     private func checkContact(_ session: Session) async -> ContactVerdict {
         await contactCheck(session)
     }
@@ -307,7 +448,7 @@ actor SendQueue {
             case .success(let resolved):
                 conversationId = resolved
             case .failure(let error):
-                return generation.isCurrent(owner) ? .failed(error) : .dropped
+                return await suspect(error, session: session, owner: owner)
             }
             let assigned: Bool
             do {
@@ -353,7 +494,8 @@ actor SendQueue {
     }
 
     private func reusableConversation() -> Int? {
-        guard let latest = latestConversation(), Self.reusable.contains(latest.status) else { return nil }
+        guard let latest = latestConversation() else { return nil }
+        guard reopenResolved || Self.reusable.contains(latest.status) else { return nil }
         return latest.id
     }
 
@@ -364,8 +506,13 @@ actor SendQueue {
 
     private func resolveConversation(session: Session, epoch: Int, attributes: [String: JSONValue]?) async -> Result<Int, ChatwootError> {
         let local = reusableConversation()
-        if let local, await !statusMayBeStale() {
-            return .success(local)
+        if let local {
+            if reopenResolved {
+                return .success(local)
+            }
+            if await !statusMayBeStale() {
+                return .success(local)
+            }
         }
         let synced = await sync.sync(.discover)
         if case .failure(let error) = synced {
@@ -460,6 +607,7 @@ actor SendQueue {
             }
             if code == 401 {
                 sessionGuard.onHttp(code: code, path: Self.messagesPath)
+                return await suspect(.http(code: code), session: session, owner: epoch)
             }
             return .failed(.http(code: code))
         case .failure(.network):
@@ -602,6 +750,7 @@ actor SendQueue {
         let echoId: String
         let retry: Bool
         let owner: Int
+        let ticket: RecoveryTicket
     }
 
     private enum Outcome {
@@ -609,7 +758,14 @@ actor SendQueue {
         case duplicate
         case dropped
         case conversationGone(Int)
+        case sessionGone(Session, code: Int)
+        case noSession(String)
         case failed(ChatwootError)
+    }
+
+    private enum Restored {
+        case ready(Session)
+        case missing(Outcome)
     }
 
     private static let retryable: Set<StoredPendingMessage.State> = [.queued, .failed]
@@ -617,8 +773,10 @@ actor SendQueue {
         ConversationStatus.open.rawValue, ConversationStatus.pending.rawValue, ConversationStatus.snoozed.rawValue
     ]
     static let statusMaxAgeMs: UInt64 = 5 * 60 * 1000
+    static let sendDeadlineMs: UInt64 = 60_000
     private static let conversationsPath = "/contacts/{id}/conversations"
     private static let messagesPath = "/contacts/{id}/conversations/{id}/messages"
+    private static let contactPath = "/contacts/{id}"
 }
 
 private extension StoredPendingMessage {
@@ -631,13 +789,11 @@ private extension StoredPendingMessage {
 }
 
 private extension ChatwootError {
-    var logLabel: String {
+    var failure: SendFailure {
         switch self {
-        case .http(let code): return "http \(code)"
-        case .network: return "network"
-        case .tooLarge: return "tooLarge"
-        case .unreadable: return "unreadable"
-        default: return "\(self)"
+        case .network: return .network
+        case .identityMismatch: return .session
+        default: return .other
         }
     }
 }

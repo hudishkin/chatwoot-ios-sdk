@@ -130,7 +130,7 @@ final class MessageDAO {
         try db.query("""
         SELECT COUNT(*) FROM messages m JOIN conversations c ON m.conversationId = c.id
         WHERE c.inboxId = ?
-        AND (m.type = 1 OR (m.type = 3 AND m.contentType = 'input_csat' AND m.surveyRating IS NULL))
+        AND \(unreadKindSQL)
         AND m.isDeleted = 0 AND m.createdAt > c.contactLastSeenAt
         """, [.integer(Int64(inboxId))]) { $0.int(0) }.first ?? 0
     }

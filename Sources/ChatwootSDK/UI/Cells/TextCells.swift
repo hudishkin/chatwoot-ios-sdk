@@ -139,16 +139,26 @@ struct Avatar: View {
     let name: String?
 
     @Environment(\.chatColors) private var colors
+    @Environment(\.agentAvatar) private var agentAvatar
 
     var body: some View {
-        Text(initials(name))
-            .font(.caption)
-            .foregroundColor(colors.onAvatarPlaceholder)
-            .lineLimit(1)
-            .frame(width: Spacing.avatar, height: Spacing.avatar)
-            .background(colors.avatarPlaceholder)
-            .clipShape(Circle())
-            .accessibilityHidden(true)
+        Group {
+            if let agentAvatar {
+                agentAvatar
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Text(initials(name))
+                    .font(.caption)
+                    .foregroundColor(colors.onAvatarPlaceholder)
+                    .lineLimit(1)
+                    .background(colors.avatarPlaceholder)
+            }
+        }
+        .frame(width: Spacing.avatar, height: Spacing.avatar)
+        .background(colors.avatarPlaceholder)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }
 
@@ -161,4 +171,55 @@ func agentDescription(_ item: ChatItem.Theirs, time: String) -> String {
     }
     let body = item.deleted ? ChatStrings.messageDeleted : item.text ?? ""
     return "\(who), \(time): \(body)"
+}
+
+struct AutoReplyCell: View {
+    let item: ChatItem.AutoReply
+    let time: String
+    let maxWidth: CGFloat
+    let onCopy: (String) -> Void
+
+    @Environment(\.chatColors) private var colors
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(ChatStrings.autoReply)
+                .font(.caption)
+                .foregroundColor(colors.incomingMeta)
+                .lineLimit(1)
+                .padding(.leading, Spacing.avatar + Spacing.avatarGap + Spacing.bubbleHorizontal)
+                .accessibilityHidden(true)
+            HStack(alignment: .bottom, spacing: Spacing.avatarGap) {
+                Image(systemName: "clock")
+                    .font(.system(size: 16))
+                    .foregroundColor(colors.onAvatarPlaceholder)
+                    .frame(width: Spacing.avatar, height: Spacing.avatar)
+                    .background(colors.avatarPlaceholder)
+                    .clipShape(Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(linkified(item.text, linkColor: colors.incomingLink))
+                        .font(.body)
+                    HStack {
+                        Spacer(minLength: 0)
+                        MessageMeta(time: time, color: colors.incomingMeta, status: nil)
+                    }
+                }
+                .padding(.horizontal, Spacing.bubbleHorizontal)
+                .padding(.vertical, Spacing.bubbleVertical)
+                .frame(maxWidth: maxWidth, alignment: .leading)
+                .background(colors.incomingBubble)
+                .foregroundColor(colors.onIncomingBubble)
+                .clipShape(BubbleShape(mine: false, run: .single))
+                .contentShape(BubbleShape(mine: false, run: .single))
+                .onLongPressGesture { onCopy(item.text) }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(ChatStrings.autoReply), \(time): \(item.text)")
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, Spacing.betweenRuns)
+        .padding(.top, Spacing.betweenRuns)
+    }
 }

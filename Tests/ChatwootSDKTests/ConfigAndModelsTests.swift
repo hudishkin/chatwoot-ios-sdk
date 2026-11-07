@@ -7,6 +7,18 @@ final class ConfigAndModelsTests: XCTestCase {
         XCTAssertEqual(config.baseURL.host, "chat.example.com")
         XCTAssertEqual(config.inboxID, 1)
         XCTAssertEqual(config.realtime, .whileForeground)
+        XCTAssertEqual(config.resolvedConversations, .startNew)
+    }
+
+    func testResolvedConversationsReopen() throws {
+        let config = try ChatwootConfig(
+            baseURL: "https://chat.example.com",
+            inboxIdentifier: "inbox-1",
+            inboxID: 1,
+            resolvedConversations: .reopen
+        )
+        XCTAssertEqual(config.resolvedConversations, .reopen)
+        XCTAssertEqual(ResolvedConversations.reopen.description, "Reopen")
     }
 
     func testConfigRejectsInvalidBaseURL() {

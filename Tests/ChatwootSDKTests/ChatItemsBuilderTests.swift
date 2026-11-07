@@ -39,10 +39,30 @@ final class ChatItemsBuilderTests: XCTestCase {
         XCTAssertEqual(headers.first?.relation, .yesterday)
     }
 
-    func testTemplateMessageTypeBecomesSystemItem() {
+    func testTemplateMessageTypeBecomesAutoReply() {
         let items = build(FeedInput(messages: [feedTemplate(1)], pending: [], conversationId: feedConversation))
 
-        XCTAssertEqual(items.first, .system(ChatItem.System(key: "m:1", text: "We reply within a day", createdAt: feedNoon + 1)))
+        XCTAssertEqual(items.first, .autoReply(ChatItem.AutoReply(key: "m:1", text: "We reply within a day", createdAt: feedNoon + 1)))
+    }
+
+    func testInputTemplateStaysASystemLine() {
+        let items = build(FeedInput(
+            messages: [feedTemplate(1, text: "Leave your e-mail", contentType: "input_email")],
+            pending: [],
+            conversationId: feedConversation
+        ))
+
+        XCTAssertEqual(items.first, .system(ChatItem.System(key: "m:1", text: "Leave your e-mail", createdAt: feedNoon + 1)))
+    }
+
+    func testUnseenRowsCountAgentRepliesAndAutoReplies() {
+        let items = build(FeedInput(
+            messages: [feedMine(1), feedTemplate(2), feedAgent(3)],
+            pending: [],
+            conversationId: feedConversation
+        ))
+
+        XCTAssertEqual(items.unseenAgentRows(seenKey: "m:1"), 2)
     }
 
     func testDeletedMessagesBecomePlaceholdersInSenderCells() {

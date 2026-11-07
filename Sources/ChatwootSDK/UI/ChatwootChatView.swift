@@ -35,6 +35,7 @@ public struct ChatwootChatView: View {
         let resolved = theme.resolve(systemDark: systemScheme == .dark)
         ChatwootChatContent(request: request)
             .environment(\.chatColors, resolved.colors)
+            .environment(\.agentAvatar, theme.agentAvatar)
             .environment(\.colorScheme, resolved.dark ? .dark : .light)
             .chatNavigationBar(
                 background: resolved.colors.navigationBar,
@@ -204,6 +205,13 @@ private struct ChatScreen: View {
             theirsRow(theirs, maxWidth: maxWidth)
         case .system(let system):
             SystemCell(text: system.text)
+        case .autoReply(let reply):
+            AutoReplyCell(
+                item: reply,
+                time: format.time(reply.createdAt),
+                maxWidth: maxWidth,
+                onCopy: { PlatformClipboard.copy($0) }
+            )
         case .survey(let survey):
             SurveyCell(
                 item: survey,
@@ -277,7 +285,10 @@ private struct ChatScreen: View {
                 )
             }
             if item.status == .failed, let echoId = item.echoId {
-                FailedState(onRetry: { viewModel.onRetry(echoId) })
+                FailedState(
+                    onRetry: { viewModel.onRetry(echoId) },
+                    reason: item.failure == .session ? ChatStrings.failedSomethingWrong : nil
+                )
             }
         }
     }

@@ -10,6 +10,8 @@ protocol ChatRepository {
 
     var pending: AnyPublisher<[StoredPendingMessage], Never> { get }
 
+    var sendFailures: AnyPublisher<[String: SendFailure], Never> { get }
+
     var typing: AnyPublisher<[Int: Bool], Never> { get }
 
     var connection: AnyPublisher<ConnectionBanner, Never> { get }
