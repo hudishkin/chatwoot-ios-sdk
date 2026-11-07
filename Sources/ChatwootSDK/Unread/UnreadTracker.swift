@@ -79,9 +79,7 @@ actor UnreadTracker {
 
     func onMessagesShown(conversationId: Int, lastCreatedAt: Int) {
         let owner = generation.current
-        Task { [weak self] in
-            await self?.markLocally(lastCreatedAt, owner: owner)
-        }
+        markLocally(lastCreatedAt, owner: owner)
         pendingJobs.removeValue(forKey: conversationId)?.cancel()
         pendingJobs[conversationId] = Task { [weak self, timeout = debounceMs] in
             try? await Task.sleep(nanoseconds: timeout * 1_000_000)

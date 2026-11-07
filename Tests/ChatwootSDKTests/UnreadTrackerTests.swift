@@ -31,7 +31,7 @@ final class UnreadTrackerTests: XCTestCase {
             messageDAO: database.messages,
             sessionGuard: sessionGuard,
             changes: database.changes,
-            debounceMs: 30,
+            debounceMs: 200,
             generation: generation,
             retryTriggers: retryTriggers.eraseToAnyPublisher(),
             backoff: SocketBackoffStrategy(random: { 1.0 }),
@@ -54,7 +54,7 @@ final class UnreadTrackerTests: XCTestCase {
     func testShownMarksLocallyAndSendsAfterDebounce() async throws {
         try database.conversations.upsert(StorageFixtures.conversation(7, contactLastSeenAt: 100))
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
-        await eventually { (try? self.database.conversations.get(7))??.contactLastSeenAt == 500 }
+        XCTAssertEqual(try database.conversations.get(7)?.contactLastSeenAt, 500)
         XCTAssertEqual(api.updateLastSeenCalls.count, 0, "до дебаунса запроса нет")
         await eventually { self.api.updateLastSeenCalls.count == 1 }
         XCTAssertEqual(api.updateLastSeenCalls[0].conversationID, 7)
@@ -123,7 +123,7 @@ final class UnreadTrackerTests: XCTestCase {
         try database.conversations.upsert(StorageFixtures.conversation(7))
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         await tracker.cancelAll()
-        await sleepMs(100)
+        await sleepMs(350)
         XCTAssertEqual(api.updateLastSeenCalls.count, 0, "отменённая квитанция не уходит")
     }
 
@@ -131,7 +131,7 @@ final class UnreadTrackerTests: XCTestCase {
         try database.conversations.upsert(StorageFixtures.conversation(7))
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         generation.invalidate {}
-        await sleepMs(100)
+        await sleepMs(350)
         XCTAssertEqual(api.updateLastSeenCalls.count, 0, "квитанция прежнего поколения не отправляется")
     }
 }
