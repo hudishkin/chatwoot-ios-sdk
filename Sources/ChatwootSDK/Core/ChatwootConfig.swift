@@ -45,6 +45,10 @@ public struct ChatwootConfig {
     /// What a message does once the latest conversation is resolved.
     /// `.startNew` by default.
     public let resolvedConversations: ResolvedConversations
+    /// Messages from the same sender within five minutes form a run: a tight gap
+    /// inside it, a wider gap between runs. `false` leaves every bubble separate,
+    /// with that wider gap between each pair. `true` by default.
+    public let groupMessagesByTime: Bool
     /// Host keys whose values are personal data and are masked in every SDK log
     /// line (like the built-in `account=…`). Letters, digits and `_`, 1–64 chars.
     public let redactedKeys: Set<String>
@@ -67,6 +71,7 @@ public struct ChatwootConfig {
         inboxID: Int,
         realtime: ChatwootRealtime = .whileForeground,
         resolvedConversations: ResolvedConversations = .startNew,
+        groupMessagesByTime: Bool = true,
         redactedKeys: Set<String> = [],
         logSink: LogSink? = nil,
         debugConsoleLogging: Bool = false
@@ -94,6 +99,7 @@ public struct ChatwootConfig {
         self.inboxID = inboxID
         self.realtime = realtime
         self.resolvedConversations = resolvedConversations
+        self.groupMessagesByTime = groupMessagesByTime
         self.redactedKeys = redactedKeys
         self.logSink = logSink
         self.debugConsoleLogging = debugConsoleLogging
@@ -104,6 +110,6 @@ extension ChatwootConfig: CustomStringConvertible {
     /// Server URL, inbox identifier and redacted keys are omitted: they identify
     /// the host's deployment.
     public var description: String {
-        "ChatwootConfig(inboxID=\(inboxID), realtime=\(realtime), resolvedConversations=\(resolvedConversations), debugConsoleLogging=\(debugConsoleLogging))"
+        "ChatwootConfig(inboxID=\(inboxID), realtime=\(realtime), resolvedConversations=\(resolvedConversations), groupMessagesByTime=\(groupMessagesByTime), debugConsoleLogging=\(debugConsoleLogging))"
     }
 }

@@ -37,7 +37,8 @@ enum SampleConfig {
                 baseURL: baseURL,
                 inboxIdentifier: inboxIdentifier,
                 inboxID: inboxID,
-                debugConsoleLogging: true
+                groupMessagesByTime: false,
+                debugConsoleLogging: true,
             )
             Chatwoot.initialize(config)
         } catch {

@@ -32,7 +32,6 @@ struct OwnTextCell: View {
             }
             .padding(.horizontal, Spacing.bubbleHorizontal)
             .padding(.vertical, Spacing.bubbleVertical)
-            .frame(maxWidth: maxWidth, alignment: .trailing)
             .background(colors.outgoingBubble)
             .foregroundColor(colors.onOutgoingBubble)
             .clipShape(BubbleShape(mine: true, run: item.run))
@@ -45,6 +44,7 @@ struct OwnTextCell: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(ownDescription(item, time: time))
+            .frame(maxWidth: maxWidth, alignment: .trailing)
         }
         .padding(.bottom, runGap(item.run))
     }
@@ -82,15 +82,19 @@ struct AgentTextCell: View {
                 }
                 .font(.body)
                 if item.showMeta {
-                    HStack {
-                        Spacer(minLength: 0)
-                        MessageMeta(time: time, color: colors.incomingMeta, status: nil)
-                    }
+                    // Reserves the time width. A spacer here would stretch the bubble.
+                    MessageMeta(time: time, color: colors.incomingMeta, status: nil)
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if item.showMeta {
+                    MessageMeta(time: time, color: colors.incomingMeta, status: nil)
                 }
             }
             .padding(.horizontal, Spacing.bubbleHorizontal)
             .padding(.vertical, Spacing.bubbleVertical)
-            .frame(maxWidth: maxWidth, alignment: .leading)
             .background(colors.incomingBubble)
             .foregroundColor(colors.onIncomingBubble)
             .clipShape(BubbleShape(mine: false, run: item.run))
@@ -100,6 +104,7 @@ struct AgentTextCell: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(agentDescription(item, time: time))
+            .frame(maxWidth: maxWidth, alignment: .leading)
         }
     }
 }
@@ -200,14 +205,15 @@ struct AutoReplyCell: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(linkified(item.text, linkColor: colors.incomingLink))
                         .font(.body)
-                    HStack {
-                        Spacer(minLength: 0)
-                        MessageMeta(time: time, color: colors.incomingMeta, status: nil)
-                    }
+                    MessageMeta(time: time, color: colors.incomingMeta, status: nil)
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    MessageMeta(time: time, color: colors.incomingMeta, status: nil)
                 }
                 .padding(.horizontal, Spacing.bubbleHorizontal)
                 .padding(.vertical, Spacing.bubbleVertical)
-                .frame(maxWidth: maxWidth, alignment: .leading)
                 .background(colors.incomingBubble)
                 .foregroundColor(colors.onIncomingBubble)
                 .clipShape(BubbleShape(mine: false, run: .single))
@@ -215,6 +221,7 @@ struct AutoReplyCell: View {
                 .onLongPressGesture { onCopy(item.text) }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(ChatStrings.autoReply), \(time): \(item.text)")
+                .frame(maxWidth: maxWidth, alignment: .leading)
                 Spacer(minLength: 0)
             }
         }

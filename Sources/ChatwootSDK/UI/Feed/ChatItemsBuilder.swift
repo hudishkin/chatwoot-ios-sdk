@@ -50,10 +50,12 @@ final class ChatItemsBuilder {
     }
 
     private let zone: TimeZone
+    private let groupMessagesByTime: Bool
     private let nowMs: () -> UInt64
 
-    init(zone: TimeZone, nowMs: @escaping () -> UInt64) {
+    init(zone: TimeZone, groupMessagesByTime: Bool = true, nowMs: @escaping () -> UInt64) {
         self.zone = zone
+        self.groupMessagesByTime = groupMessagesByTime
         self.nowMs = nowMs
     }
 
@@ -204,8 +206,8 @@ final class ChatItemsBuilder {
             case .plain(let item):
                 return item
             case .bubble(let bubble):
-                let previous = bubbleAt(rows, index - 1).flatMap { $0.joins(bubble) ? $0 : nil }
-                let next = bubbleAt(rows, index + 1).flatMap { bubble.joins($0) ? $0 : nil }
+                let previous = bubbleAt(rows, index - 1).flatMap { joins($0, bubble) ? $0 : nil }
+                let next = bubbleAt(rows, index + 1).flatMap { joins(bubble, $0) ? $0 : nil }
                 let position: RunPosition
                 switch (previous, next) {
                 case (nil, nil): position = .single
@@ -216,6 +218,10 @@ final class ChatItemsBuilder {
                 return item(bubble, position: position, next: next)
             }
         }
+    }
+
+    private func joins(_ earlier: Row.Bubble, _ later: Row.Bubble) -> Bool {
+        groupMessagesByTime && earlier.joins(later)
     }
 
     private func bubbleAt(_ rows: [Row], _ index: Int) -> Row.Bubble? {
