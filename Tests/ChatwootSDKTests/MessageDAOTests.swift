@@ -100,8 +100,10 @@ final class MessageDAOTests: XCTestCase {
         try dao.applyServerMessage(StorageFixtures.message(43, conversationId: 11, type: 1, createdAt: 150, isDeleted: true), attachments: [], echoId: nil)
         try dao.applyServerMessage(StorageFixtures.message(44, conversationId: 11, type: 3, contentType: "input_csat", createdAt: 150), attachments: [], echoId: nil)
         try dao.applyServerMessage(StorageFixtures.message(45, conversationId: 11, type: 3, contentType: "input_csat", createdAt: 150, surveyRating: 5), attachments: [], echoId: nil)
+        try dao.applyServerMessage(StorageFixtures.message(46, conversationId: 11, type: 3, contentType: "text", createdAt: 150), attachments: [], echoId: nil)
+        try dao.applyServerMessage(StorageFixtures.message(47, conversationId: 11, type: 3, contentType: "input_email", createdAt: 150), attachments: [], echoId: nil)
 
-        XCTAssertEqual(try dao.unreadCount(inboxId: 1), 2, "входящее + неотвеченный опрос")
+        XCTAssertEqual(try dao.unreadCount(inboxId: 1), 3, "ответ агента + неотвеченный опрос + автоответ")
     }
 
     func testNewestMessageId() throws {

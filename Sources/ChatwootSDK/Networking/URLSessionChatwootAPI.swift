@@ -175,6 +175,7 @@ public final class URLSessionChatwootAPI: ChatwootAPI {
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
+            CWLog.w(.net, "response undecodable \(type(of: error))")
             throw ChatwootError.unknown
         }
     }

@@ -8,6 +8,8 @@
 "chatwoot_retry" = "Retry";
 "chatwoot_failed" = "Not sent";
 "chatwoot_failed_retry" = "Not sent · Retry";
+"chatwoot_failed_something_wrong" = "Something went wrong · Retry";
+"chatwoot_auto_reply" = "Automatic reply";
 "chatwoot_message_deleted" = "Message deleted";
 "chatwoot_empty" = "Write your question — an agent will reply here.";
 "chatwoot_banner_connecting" = "Connecting…";

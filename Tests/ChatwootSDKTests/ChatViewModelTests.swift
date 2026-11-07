@@ -152,14 +152,14 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(source.shown.first?.1, feedNoon + 30)
     }
 
-    func testTemplateMessageBecomesSystemItem() async {
+    func testTextTemplateBecomesAutoReply() async {
         let source = FakeChatRepository()
         source.messagesSubject.send([feedTemplate(1)])
         source.conversationSubject.send(feedConversation)
         let vm = makeViewModel(source)
 
         await eventually {
-            if case .system = vm.state.items.first { return true }
+            if case .autoReply = vm.state.items.first { return true }
             return false
         }
     }
@@ -475,6 +475,8 @@ final class FakeChatRepository: ChatRepository {
         messagesSubject.eraseToAnyPublisher()
     }
     var pending: AnyPublisher<[StoredPendingMessage], Never> { pendingSubject.eraseToAnyPublisher() }
+    let sendFailuresSubject = CurrentValueSubject<[String: SendFailure], Never>([:])
+    var sendFailures: AnyPublisher<[String: SendFailure], Never> { sendFailuresSubject.eraseToAnyPublisher() }
     var typing: AnyPublisher<[Int: Bool], Never> { typingSubject.eraseToAnyPublisher() }
     var connection: AnyPublisher<ConnectionBanner, Never> { connectionSubject.eraseToAnyPublisher() }
 

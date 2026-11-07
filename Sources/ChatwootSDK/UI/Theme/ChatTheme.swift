@@ -138,9 +138,18 @@ private struct ChatColorsKey: EnvironmentKey {
     static let defaultValue = ChatwootColors.derived.resolve(dark: false)
 }
 
+private struct AgentAvatarKey: EnvironmentKey {
+    static let defaultValue: Image? = nil
+}
+
 extension EnvironmentValues {
     var chatColors: ResolvedChatColors {
         get { self[ChatColorsKey.self] }
         set { self[ChatColorsKey.self] = newValue }
+    }
+
+    var agentAvatar: Image? {
+        get { self[AgentAvatarKey.self] }
+        set { self[AgentAvatarKey.self] = newValue }
     }
 }

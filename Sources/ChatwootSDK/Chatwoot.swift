@@ -11,9 +11,9 @@ public enum Chatwoot {
     private static var installedCore: ChatwootCore?
     private static let unreadSubject = CurrentValueSubject<Int, Never>(0)
 
-    /// Unread agent replies and unanswered surveys for the identified user.
-    /// Replays the latest count to each new subscriber. `0` before a successful
-    /// `identify` and after `reset`.
+    /// Unread agent replies, automatic replies, and unanswered surveys for the
+    /// identified user. Replays the latest count to each new subscriber. `0`
+    /// before a successful `identify` and after `reset`.
     ///
     /// The SDK keeps the count current: a sync when `identify` succeeds, another
     /// when the app returns to the foreground, and a timer while the app is
@@ -116,6 +116,9 @@ actor ChatwootCore {
     }
 
     private var remembered: (user: ChatwootUser, provider: IdentityProvider)?
+    private var resetEpoch = 0
+    private let identifyFlag = IdentifyFlag()
+    private var sessionRecoverer: SessionRecoverer?
 
     private var guardTasks: [Task<Void, Never>] = []
 
@@ -149,6 +152,7 @@ actor ChatwootCore {
     var session: Session? { sessionStore.current }
 
     func identify(user: ChatwootUser, identityProvider: IdentityProvider) async -> Result<Void, ChatwootError> {
+        identifyFlag.markCalled()
         remembered = (user, identityProvider)
         let result = await runIdentify(user: user, provider: identityProvider, force: false)
         if case .success = result {
@@ -169,8 +173,10 @@ actor ChatwootCore {
     }
 
     func reset() async {
+        resetEpoch += 1
         remembered = nil
         if let stack {
+            await stack.sendQueue.forgetFailures()
             await stack.realtime.stopNow()
         }
         networkMonitor.stop()
@@ -267,7 +273,10 @@ actor ChatwootCore {
                     case .unknown: return .unknown
                     }
                 },
-                realtimeLive: { realtime.isLive }
+                realtimeLive: { realtime.isLive },
+                sessionRecoverer: recoverer(),
+                identifyCalled: { [identifyFlag] in identifyFlag.called },
+                reopenResolved: config.resolvedConversations == .reopen
             )
             let retryTriggers = Publishers.Merge(
                 socket.status.filter { $0 == .opened }.map { _ in () },
@@ -355,6 +364,41 @@ actor ChatwootCore {
         }
     }
 
+    /// One identify for a send: the remembered user when there is no session, or a forced one that replaces `stale`.
+    private func identifyForSend(stale: Session?) async -> SessionRecovery {
+        let epoch = resetEpoch
+        guard let remembered else { return .notIdentified }
+        if let current = sessionStore.current, current != stale {
+            return .done
+        }
+        if resetEpoch != epoch { return .aborted }
+        let result = await runIdentify(user: remembered.user, provider: remembered.provider, force: stale != nil)
+        if resetEpoch != epoch || self.remembered == nil { return .aborted }
+        switch result {
+        case .success:
+            if let sync = stack?.sync {
+                Task { _ = await sync.sync(.identify) }
+            }
+            return .done
+        case .failure(let error):
+            return .failed(error)
+        }
+    }
+
+    private func recoverer() -> SessionRecoverer {
+        if let sessionRecoverer { return sessionRecoverer }
+        let created = SessionRecoverer(
+            identifyOnce: { [weak self] in
+                await self?.identifyForSend(stale: nil) ?? .notIdentified
+            },
+            reidentifyOnce: { [weak self] stale in
+                await self?.identifyForSend(stale: stale) ?? .notIdentified
+            }
+        )
+        sessionRecoverer = created
+        return created
+    }
+
     private func wipeLocalData() async throws {
         let marked: Bool
         do {
@@ -383,5 +427,24 @@ actor ChatwootCore {
         }
         sessionStore.clearCleanupRequired()
         try? FileManager.default.removeItem(at: attachmentsDir)
+    }
+}
+
+/// Set when the host calls `identify` in this process. Stays set after `reset`:
+/// a send before any identify is an integration bug and is logged once.
+final class IdentifyFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func markCalled() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var called: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

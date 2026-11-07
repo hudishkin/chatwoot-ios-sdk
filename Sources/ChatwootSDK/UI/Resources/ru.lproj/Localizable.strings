@@ -8,6 +8,8 @@
 "chatwoot_retry" = "Повторить";
 "chatwoot_failed" = "Не отправлено";
 "chatwoot_failed_retry" = "Не отправлено · Повторить";
+"chatwoot_failed_something_wrong" = "Что-то пошло не так · Повторить";
+"chatwoot_auto_reply" = "Автоответ";
 "chatwoot_message_deleted" = "Сообщение удалено";
 "chatwoot_empty" = "Напишите свой вопрос — оператор ответит здесь.";
 "chatwoot_banner_connecting" = "Подключение…";

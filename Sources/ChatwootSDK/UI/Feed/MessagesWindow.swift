@@ -30,7 +30,8 @@ final class MessagesWindow {
         let items = builder.build(FeedInput(
             messages: shown,
             pending: input.pending,
-            conversationId: input.conversationId
+            conversationId: input.conversationId,
+            failures: input.failures
         ))
         state = State(items: items, isLoading: false, hasOlder: from > 0)
         return state

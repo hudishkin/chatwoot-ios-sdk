@@ -14,6 +14,8 @@ enum ChatStrings {
     static var retry: String { string("chatwoot_retry") }
     static var failed: String { string("chatwoot_failed") }
     static var failedRetry: String { string("chatwoot_failed_retry") }
+    static var failedSomethingWrong: String { string("chatwoot_failed_something_wrong") }
+    static var autoReply: String { string("chatwoot_auto_reply") }
     static var messageDeleted: String { string("chatwoot_message_deleted") }
     static var empty: String { string("chatwoot_empty") }
     static var bannerConnecting: String { string("chatwoot_banner_connecting") }

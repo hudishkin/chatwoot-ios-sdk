@@ -43,7 +43,7 @@ final class ConversationDAO {
             (SELECT m.content FROM messages m WHERE m.conversationId = c.id AND m.isDeleted = 0 AND m.type != 2
             ORDER BY m.createdAt DESC, m.id DESC LIMIT 1) AS lastMessagePreview,
             (SELECT COUNT(*) FROM messages m WHERE m.conversationId = c.id
-            AND (m.type = 1 OR (m.type = 3 AND m.contentType = 'input_csat' AND m.surveyRating IS NULL))
+            AND \(unreadKindSQL)
             AND m.isDeleted = 0 AND m.createdAt > c.contactLastSeenAt) AS unread
         FROM conversations c WHERE c.inboxId = ? ORDER BY c.lastActivityAt DESC, c.id DESC
         """, [.integer(Int64(inboxId))]) { row in

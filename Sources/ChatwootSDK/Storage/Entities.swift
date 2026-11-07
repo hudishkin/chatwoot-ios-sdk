@@ -90,7 +90,7 @@ extension MessageDTO {
             createdAt: createdAt ?? 0,
             isMine: isMine,
             isDeleted: contentAttributes?["deleted"]?.boolValue == true,
-            senderName: sender?.name,
+            senderName: sender?.displayName,
             senderType: sender?.type,
             surveyDisplay: surveyDisplay,
             surveyRating: surveyRating

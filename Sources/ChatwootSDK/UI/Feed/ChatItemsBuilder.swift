@@ -4,6 +4,7 @@ struct FeedInput {
     let messages: [MessageWithAttachments]
     let pending: [StoredPendingMessage]
     let conversationId: Int?
+    var failures: [String: SendFailure] = [:]
 }
 
 final class ChatItemsBuilder {
@@ -40,6 +41,7 @@ final class ChatItemsBuilder {
             let message: StoredMessage?
             let echoId: String?
             let deleted: Bool
+            let failure: SendFailure?
 
             func joins(_ later: Bubble) -> Bool {
                 sender == later.sender && later.createdAt - createdAt <= runGapSeconds
@@ -74,7 +76,7 @@ final class ChatItemsBuilder {
         var rows = [Row]()
         var lastDay: Int64?
         for entry in entries {
-            let produced = rowsOf(entry)
+            let produced = rowsOf(entry, failures: input.failures)
             if produced.isEmpty { continue }
             let day = epochDay(Int64(entry.createdAt) * ChatItemsBuilder.millisPerSecond)
             if day != lastDay {
@@ -88,9 +90,9 @@ final class ChatItemsBuilder {
         return group(rows).reversed()
     }
 
-    private func rowsOf(_ entry: Entry) -> [Row] {
+    private func rowsOf(_ entry: Entry, failures: [String: SendFailure]) -> [Row] {
         switch entry {
-        case .queued(let pending): return queuedRows(pending)
+        case .queued(let pending): return queuedRows(pending, failures: failures)
         case .server(let item): return serverRows(item)
         }
     }
@@ -105,13 +107,16 @@ final class ChatItemsBuilder {
         case .activity, .template:
             let text = m.content?.trimmingCharacters(in: .whitespacesAndNewlines)
             if m.isDeleted || text?.isEmpty != false { return [] }
+            if m.isAutoReply {
+                return [.plain(.autoReply(ChatItem.AutoReply(key: key, text: text ?? "", createdAt: m.createdAt)))]
+            }
             return [.plain(.system(ChatItem.System(key: key, text: text ?? "", createdAt: m.createdAt)))]
         case .incoming, .outgoing:
             let sender = m.isMine ? ChatItemsBuilder.senderMe : "a:\(m.senderType ?? ""):\(m.senderName ?? "")"
             if m.isDeleted {
                 return [.bubble(Row.Bubble(
                     key: key, sender: sender, createdAt: m.createdAt, text: nil,
-                    attachment: nil, status: .sent, message: m, echoId: nil, deleted: true
+                    attachment: nil, status: .sent, message: m, echoId: nil, deleted: true, failure: nil
                 ))]
             }
             let files = item.attachments.compactMap(attachmentUi)
@@ -135,8 +140,9 @@ final class ChatItemsBuilder {
         ))
     }
 
-    private func queuedRows(_ p: StoredPendingMessage) -> [Row] {
+    private func queuedRows(_ p: StoredPendingMessage, failures: [String: SendFailure]) -> [Row] {
         let status: SendStatus = p.state == .failed ? .failed : .sending
+        let failure = status == .failed ? failures[p.echoId] : nil
         let files = p.attachmentPath.map { path in
             [AttachmentUi(
                 source: path,
@@ -151,7 +157,7 @@ final class ChatItemsBuilder {
         } ?? []
         return bubbles(
             key: "p:\(p.echoId)", sender: ChatItemsBuilder.senderMe, createdAt: p.createdAt,
-            content: p.content, files: files, status: status, message: nil, echoId: p.echoId
+            content: p.content, files: files, status: status, message: nil, echoId: p.echoId, failure: failure
         )
     }
 
@@ -163,7 +169,8 @@ final class ChatItemsBuilder {
         files: [AttachmentUi],
         status: SendStatus,
         message: StoredMessage?,
-        echoId: String? = nil
+        echoId: String? = nil,
+        failure: SendFailure? = nil
     ) -> [Row] {
         let text = content.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
@@ -172,7 +179,7 @@ final class ChatItemsBuilder {
             guard let text else { return [] }
             return [.bubble(Row.Bubble(
                 key: key, sender: sender, createdAt: createdAt, text: text,
-                attachment: nil, status: status, message: message, echoId: echoId, deleted: false
+                attachment: nil, status: status, message: message, echoId: echoId, deleted: false, failure: failure
             ))]
         }
         return files.enumerated().map { index, file in
@@ -185,7 +192,8 @@ final class ChatItemsBuilder {
                 status: status,
                 message: message,
                 echoId: echoId,
-                deleted: false
+                deleted: false,
+                failure: failure
             ))
         }
     }
@@ -223,6 +231,7 @@ final class ChatItemsBuilder {
                 text: bubble.text,
                 attachment: bubble.attachment,
                 status: bubble.status,
+                failure: bubble.failure,
                 createdAt: bubble.createdAt,
                 run: position,
                 showMeta: next == nil || next?.status != bubble.status,

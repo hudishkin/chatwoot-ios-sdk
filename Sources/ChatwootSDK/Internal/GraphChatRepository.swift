@@ -70,6 +70,10 @@ final class GraphChatRepository: ChatRepository {
         pendingSubject.eraseToAnyPublisher()
     }
 
+    var sendFailures: AnyPublisher<[String: SendFailure], Never> {
+        sendQueue.failures.eraseToAnyPublisher()
+    }
+
     var typing: AnyPublisher<[Int: Bool], Never> {
         realtime.typing.eraseToAnyPublisher()
     }

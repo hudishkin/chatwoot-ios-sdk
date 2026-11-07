@@ -14,6 +14,23 @@ public enum ChatwootRealtime: Sendable {
     case whileChatOpen
 }
 
+/// What the user's next message does once the latest conversation of the inbox is resolved.
+public enum ResolvedConversations: Equatable, Sendable, CustomStringConvertible {
+    /// Ask the server for a conversation. Without the inbox setting "lock to single conversation"
+    /// that starts a new one. With it, the server returns the resolved conversation and the message reopens it.
+    case startNew
+    /// Post into the latest conversation whatever its status. Chatwoot reopens a resolved one.
+    /// A new conversation is started only when the contact has none in this inbox.
+    case reopen
+
+    public var description: String {
+        switch self {
+        case .startNew: return "StartNew"
+        case .reopen: return "Reopen"
+        }
+    }
+}
+
 /// SDK configuration passed to `Chatwoot.initialize`. Validated on creation.
 public struct ChatwootConfig {
     /// Server root over https, without a path, e.g. `https://chat.example.com`.
@@ -25,6 +42,9 @@ public struct ChatwootConfig {
     public let inboxID: Int
     /// When to keep the realtime socket open; `.whileForeground` by default.
     public let realtime: ChatwootRealtime
+    /// What a message does once the latest conversation is resolved.
+    /// `.startNew` by default.
+    public let resolvedConversations: ResolvedConversations
     /// Host keys whose values are personal data and are masked in every SDK log
     /// line (like the built-in `account=…`). Letters, digits and `_`, 1–64 chars.
     public let redactedKeys: Set<String>
@@ -46,6 +66,7 @@ public struct ChatwootConfig {
         inboxIdentifier: String,
         inboxID: Int,
         realtime: ChatwootRealtime = .whileForeground,
+        resolvedConversations: ResolvedConversations = .startNew,
         redactedKeys: Set<String> = [],
         logSink: LogSink? = nil,
         debugConsoleLogging: Bool = false
@@ -72,6 +93,7 @@ public struct ChatwootConfig {
         self.inboxIdentifier = inboxIdentifier
         self.inboxID = inboxID
         self.realtime = realtime
+        self.resolvedConversations = resolvedConversations
         self.redactedKeys = redactedKeys
         self.logSink = logSink
         self.debugConsoleLogging = debugConsoleLogging
@@ -82,6 +104,6 @@ extension ChatwootConfig: CustomStringConvertible {
     /// Server URL, inbox identifier and redacted keys are omitted: they identify
     /// the host's deployment.
     public var description: String {
-        "ChatwootConfig(inboxID=\(inboxID), realtime=\(realtime), debugConsoleLogging=\(debugConsoleLogging))"
+        "ChatwootConfig(inboxID=\(inboxID), realtime=\(realtime), resolvedConversations=\(resolvedConversations), debugConsoleLogging=\(debugConsoleLogging))"
     }
 }

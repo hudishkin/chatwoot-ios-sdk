@@ -45,6 +45,8 @@ final class DTOCodingTests: XCTestCase {
         XCTAssertEqual(dto.conversationID, 7)
         XCTAssertEqual(dto.sender?.type, "user")
         XCTAssertEqual(dto.sender?.availableName, "Agent A")
+        XCTAssertEqual(dto.sender?.displayName, "Agent A")
+        XCTAssertEqual(dto.toEntities()?.0.senderName, "Agent A")
         XCTAssertEqual(dto.attachments?.count, 1)
         XCTAssertEqual(dto.attachments?.first?.fileType, "image")
         XCTAssertEqual(dto.attachments?.first?.fileSize, 10240)

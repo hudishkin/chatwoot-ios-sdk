@@ -37,8 +37,8 @@ final class ChatViewModel: ObservableObject {
             .map { [source] id -> AnyPublisher<FeedInput, Never> in
                 let messages = id.map { source.messages(conversationId: $0) }
                     ?? Just([MessageWithAttachments]()).eraseToAnyPublisher()
-                return Publishers.CombineLatest(messages, source.pending)
-                    .map { FeedInput(messages: $0, pending: $1, conversationId: id) }
+                return Publishers.CombineLatest3(messages, source.pending, source.sendFailures)
+                    .map { FeedInput(messages: $0.0, pending: $0.1, conversationId: id, failures: $0.2) }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
