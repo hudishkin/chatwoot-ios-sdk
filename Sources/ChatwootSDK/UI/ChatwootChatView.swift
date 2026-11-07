@@ -48,11 +48,12 @@ private struct ChatwootChatContent: View {
     let request: ChatRequest
 
     @State private var repository: ChatRepository?
+    @State private var groupMessagesByTime = true
 
     var body: some View {
         Group {
             if let repository {
-                ChatScreen(repository: repository)
+                ChatScreen(repository: repository, groupMessagesByTime: groupMessagesByTime)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,7 +61,9 @@ private struct ChatwootChatContent: View {
         }
         .task {
             if repository == nil {
-                repository = await Chatwoot.core?.makeChatRepository(request: request)
+                let core = Chatwoot.core
+                groupMessagesByTime = await core?.config.groupMessagesByTime ?? true
+                repository = await core?.makeChatRepository(request: request)
             }
         }
     }
@@ -69,10 +72,14 @@ private struct ChatwootChatContent: View {
 private struct ChatScreen: View {
     @StateObject private var viewModel: ChatViewModel
 
-    init(repository: ChatRepository) {
+    init(repository: ChatRepository, groupMessagesByTime: Bool) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(
             source: repository,
-            builder: ChatItemsBuilder(zone: .current, nowMs: { UInt64(Date().timeIntervalSince1970 * 1000) })
+            builder: ChatItemsBuilder(
+                zone: .current,
+                groupMessagesByTime: groupMessagesByTime,
+                nowMs: { UInt64(Date().timeIntervalSince1970 * 1000) }
+            )
         ))
     }
 

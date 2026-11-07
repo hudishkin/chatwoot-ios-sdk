@@ -8,6 +8,17 @@ final class ConfigAndModelsTests: XCTestCase {
         XCTAssertEqual(config.inboxID, 1)
         XCTAssertEqual(config.realtime, .whileForeground)
         XCTAssertEqual(config.resolvedConversations, .startNew)
+        XCTAssertTrue(config.groupMessagesByTime)
+    }
+
+    func testConfigCanDisableTimeGrouping() throws {
+        let config = try ChatwootConfig(
+            baseURL: "https://chat.example.com",
+            inboxIdentifier: "inbox-1",
+            inboxID: 1,
+            groupMessagesByTime: false
+        )
+        XCTAssertFalse(config.groupMessagesByTime)
     }
 
     func testResolvedConversationsReopen() throws {

@@ -140,6 +140,26 @@ final class ChatItemsBuilderTests: XCTestCase {
         XCTAssertEqual(run.map(\.showMeta), [false, false, true])
     }
 
+    func testDisabledTimeGroupingSeparatesBubblesWithOneGap() {
+        let builder = ChatItemsBuilder(zone: TimeZone(identifier: "UTC")!, groupMessagesByTime: false) {
+            UInt64(feedNoon + 3_600) * 1000
+        }
+        let items = builder.build(FeedInput(
+            messages: [feedAgent(1), feedAgent(2), feedAgent(3)],
+            pending: [], conversationId: feedConversation
+        ))
+
+        let run = items.compactMap { item -> ChatItem.Theirs? in
+            guard case .theirs(let theirs) = item else { return nil }
+            return theirs
+        }.reversed()
+        XCTAssertEqual(run.map(\.run), [.single, .single, .single])
+        XCTAssertEqual(run.map(\.showName), [true, true, true])
+        XCTAssertEqual(run.map(\.showAvatar), [true, true, true])
+        XCTAssertEqual(run.map(\.showMeta), [true, true, true])
+        XCTAssertEqual(Set(run.map { runGap($0.run) }), [Spacing.betweenRuns])
+    }
+
     func testSenderChangeOrLongGapStartsNewRun() {
         let items = build(FeedInput(
             messages: [
