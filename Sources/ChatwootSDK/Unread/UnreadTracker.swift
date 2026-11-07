@@ -17,6 +17,7 @@ actor UnreadTracker {
     private let retryTriggers: AnyPublisher<Void, Never>
     private var backoff: SocketBackoffStrategy
     private let contactCheck: (Session) async -> StaleSessionVerifier.Verdict
+    private let delay: @Sendable (UInt64) async -> Void
 
     private var pendingJobs: [Int: Task<Void, Never>] = [:]
     private var unacknowledged: [Int: Int] = [:]
@@ -37,7 +38,10 @@ actor UnreadTracker {
         generation: SessionGeneration,
         retryTriggers: AnyPublisher<Void, Never> = Empty().eraseToAnyPublisher(),
         backoff: SocketBackoffStrategy = SocketBackoffStrategy(),
-        contactCheck: @escaping (Session) async -> StaleSessionVerifier.Verdict = { _ in .unknown }
+        contactCheck: @escaping (Session) async -> StaleSessionVerifier.Verdict = { _ in .unknown },
+        delay: @escaping @Sendable (UInt64) async -> Void = { milliseconds in
+            try? await Task.sleep(nanoseconds: milliseconds * 1_000_000)
+        }
     ) {
         self.api = api
         self.inboxIdentifier = inboxIdentifier
@@ -52,6 +56,7 @@ actor UnreadTracker {
         self.retryTriggers = retryTriggers
         self.backoff = backoff
         self.contactCheck = contactCheck
+        self.delay = delay
     }
 
     func start() {
@@ -81,8 +86,9 @@ actor UnreadTracker {
         let owner = generation.current
         markLocally(lastCreatedAt, owner: owner)
         pendingJobs.removeValue(forKey: conversationId)?.cancel()
-        pendingJobs[conversationId] = Task { [weak self, timeout = debounceMs] in
-            try? await Task.sleep(nanoseconds: timeout * 1_000_000)
+        let delay = delay
+        pendingJobs[conversationId] = Task { [weak self, timeout = debounceMs, delay] in
+            await delay(timeout)
             guard !Task.isCancelled else { return }
             await self?.debouncedFired(conversationId, owner: owner)
         }
