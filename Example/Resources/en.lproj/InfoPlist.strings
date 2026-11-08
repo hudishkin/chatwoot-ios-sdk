@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "The chat uses the camera so you can take a photo or video and send it.";
+NSMicrophoneUsageDescription = "The chat uses the microphone so a video you record includes sound.";

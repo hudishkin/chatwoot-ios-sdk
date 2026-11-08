@@ -2,7 +2,7 @@ import ProjectDescription
 
 /// Release version: the release workflow tags this commit with it.
 /// Keep `ChatwootSDK.version` in `Sources/ChatwootSDK/ChatwootSDK.swift` equal to it.
-let version = "0.3.0"
+let version = "0.3.1"
 
 let project = Project(
     name: "ChatwootSDK",
@@ -39,7 +39,9 @@ let project = Project(
             deploymentTargets: .iOS("15.0"),
             infoPlist: .extendingDefault(with: [
                 "CFBundleShortVersionString": .string(version),
-                "UILaunchScreen": .dictionary([:])
+                "UILaunchScreen": .dictionary([:]),
+                "NSCameraUsageDescription": .string("The chat uses the camera so you can take a photo or video and send it."),
+                "NSMicrophoneUsageDescription": .string("The chat uses the microphone so a video you record includes sound.")
             ]),
             sources: ["Example/Sources/**"],
             resources: ["Example/Resources/**"],

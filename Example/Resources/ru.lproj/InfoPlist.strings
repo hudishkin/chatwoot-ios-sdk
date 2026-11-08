@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "Камера нужна, чтобы снять фото или видео и отправить его в чат.";
+NSMicrophoneUsageDescription = "Микрофон нужен, чтобы в записанном видео был звук.";

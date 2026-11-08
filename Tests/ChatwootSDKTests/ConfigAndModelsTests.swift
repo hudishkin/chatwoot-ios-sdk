@@ -93,8 +93,8 @@ final class ConfigAndModelsTests: XCTestCase {
         XCTAssertEqual(object["since"] as? String, "2024-01-15")
     }
 
-    func testDefaultAttachmentMenuIsPhotoThenFile() {
-        XCTAssertEqual(ChatRequest.default.attachmentMenu.map(\.menuIdentity), ["photo", "file"])
+    func testDefaultAttachmentMenuIsCameraPhotoThenFile() {
+        XCTAssertEqual(ChatRequest.default.attachmentMenu.map(\.menuIdentity), ["camera", "photo", "file"])
     }
 
     func testCustomAttachmentTrimsTitleAndDefaultsIcon() {
@@ -124,20 +124,18 @@ final class ConfigAndModelsTests: XCTestCase {
 
     func testVisibleAttachmentMenuSkipsBlankCustomAndUnavailablePhoto() {
         let menu: [ChatAttachmentMenuItem] = [
+            .camera,
             .photo,
             .custom(CustomAttachment(title: "   ", provide: { nil })),
             .file,
             .custom(CustomAttachment(title: "Invoice", systemImage: "doc.text", provide: { nil }))
         ]
         let visible = ChatAttachmentMenuItem.visible(menu).map(\.menuIdentity)
+        let invoice = "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"
         #if os(iOS)
-        if #available(iOS 16, *) {
-            XCTAssertEqual(visible, ["photo", "file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
-        } else {
-            XCTAssertEqual(visible, ["file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
-        }
+        XCTAssertEqual(visible, ["camera", "photo", "file", invoice])
         #else
-        XCTAssertEqual(visible, ["file", "custom\u{1f}Invoice\u{1f}Invoice\u{1f}doc.text"])
+        XCTAssertEqual(visible, ["file", invoice])
         #endif
     }
 

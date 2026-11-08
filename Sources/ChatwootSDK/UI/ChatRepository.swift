@@ -75,4 +75,5 @@ enum ChatErrorKind: Equatable {
     case sendFailed
     case attachTooLarge
     case attachFailed
+    case cameraUnavailable
 }

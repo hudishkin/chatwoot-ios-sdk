@@ -91,6 +91,7 @@ struct ContentView: View {
 
     private var chatRequest: ChatRequest {
         ChatRequest(attachmentMenu: [
+            .camera,
             .photo,
             .file,
             .custom(CustomAttachment(title: "Sample note", systemImage: "note.text") {

@@ -3,8 +3,10 @@
 "chatwoot_composer_hint" = "Сообщение";
 "chatwoot_send" = "Отправить";
 "chatwoot_attach" = "Прикрепить";
+"chatwoot_attach_camera" = "Камера";
 "chatwoot_attach_photo" = "Фото или видео";
 "chatwoot_attach_file" = "Файл";
+"chatwoot_camera_unavailable" = "Камера недоступна";
 "chatwoot_retry" = "Повторить";
 "chatwoot_failed" = "Не отправлено";
 "chatwoot_failed_retry" = "Не отправлено · Повторить";
