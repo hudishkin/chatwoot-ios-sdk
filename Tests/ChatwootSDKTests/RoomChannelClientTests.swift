@@ -69,10 +69,23 @@ final class RoomChannelClientTests: XCTestCase {
         XCTFail("клиент не подписался", file: file, line: line)
     }
 
+    private func waitUntil(
+        _ condition: @autoclosure () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<100 {
+            if condition() { return }
+            await sleepMs(10)
+        }
+        XCTFail("условие не выполнилось", file: file, line: line)
+    }
+
     func testSubscribeAfterWelcome() async {
         await cable.start(pubsubToken: "tok")
-        await sleepMs(20)
-        XCTAssertTrue(socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok")))
+        let frame = CableCodec.subscribeFrame(pubsubToken: "tok")
+        await waitUntil(socket.sent.contains(frame))
+        XCTAssertTrue(socket.sent.contains(frame))
     }
 
     func testSubscribeWaitsForWelcomeWhenDisconnected() async {
@@ -91,14 +104,15 @@ final class RoomChannelClientTests: XCTestCase {
         let identifier = CableCodec.identifier(pubsubToken: "tok")
         let confirm = try! JSONSerialization.data(withJSONObject: ["type": "confirm_subscription", "identifier": identifier])
         sendText(String(data: confirm, encoding: .utf8)!)
-        await sleepMs(20)
+        let presence = CableCodec.presenceFrame(pubsubToken: "tok")
+        await waitUntil(cable.subscription.value == .confirmed && socket.sent.contains(presence))
         XCTAssertEqual(cable.subscription.value, .confirmed)
-        XCTAssertTrue(socket.sent.contains(CableCodec.presenceFrame(pubsubToken: "tok")), "presence пошёл после confirm")
+        XCTAssertTrue(socket.sent.contains(presence), "presence пошёл после confirm")
     }
 
     func testNoConfirmReconnects() async {
         await cable.start(pubsubToken: "tok")
-        await sleepMs(120)
+        await waitUntil(socket.reconnectReasons == ["confirm_timeout"])
         XCTAssertEqual(socket.reconnectReasons, ["confirm_timeout"])
         XCTAssertEqual(cable.missedConfirms.value, 1)
     }
@@ -109,9 +123,9 @@ final class RoomChannelClientTests: XCTestCase {
         let identifier = CableCodec.identifier(pubsubToken: "tok")
         let reject = try! JSONSerialization.data(withJSONObject: ["type": "reject_subscription", "identifier": identifier])
         sendText(String(data: reject, encoding: .utf8)!)
-        await sleepMs(10)
+        await waitUntil(cable.subscription.value == .rejected)
         XCTAssertEqual(cable.subscription.value, .rejected)
-        await sleepMs(60)
+        await waitUntil(socket.reconnectReasons == ["rejected"])
         XCTAssertEqual(socket.reconnectReasons, ["rejected"])
     }
 
@@ -164,7 +178,7 @@ final class RoomChannelClientTests: XCTestCase {
         sendText(#"{"type":"disconnect","reason":"unauthorized","reconnect":false}"#)
         await fulfillment(of: [received], timeout: 1)
         XCTAssertEqual(reason, "unauthorized")
-        await sleepMs(10)
+        await waitUntil(socket.desiredHistory == [false])
         XCTAssertEqual(socket.desiredHistory, [false], "сокет остановлен сервером навсегда")
     }
 
@@ -175,7 +189,7 @@ final class RoomChannelClientTests: XCTestCase {
         await cable.start(pubsubToken: "tok")
         await waitForSubscription()
         sendText(#"{"type":"disconnect","reason":"weird server text","reconnect":false}"#)
-        await sleepMs(50)
+        await waitUntil(reasons == ["other"])
         XCTAssertEqual(reasons, ["other"], "свободный текст сервера не пересылается")
     }
 
@@ -183,8 +197,10 @@ final class RoomChannelClientTests: XCTestCase {
         await cable.start(pubsubToken: "tok")
         await waitForSubscription()
         await cable.updateToken("tok-2")
-        await sleepMs(20)
-        XCTAssertTrue(socket.sent.contains(CableCodec.unsubscribeFrame(pubsubToken: "tok")))
-        XCTAssertTrue(socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-2")))
+        let unsubscribe = CableCodec.unsubscribeFrame(pubsubToken: "tok")
+        let subscribe = CableCodec.subscribeFrame(pubsubToken: "tok-2")
+        await waitUntil(socket.sent.contains(unsubscribe) && socket.sent.contains(subscribe))
+        XCTAssertTrue(socket.sent.contains(unsubscribe))
+        XCTAssertTrue(socket.sent.contains(subscribe))
     }
 }
