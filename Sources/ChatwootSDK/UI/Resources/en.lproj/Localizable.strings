@@ -3,8 +3,10 @@
 "chatwoot_composer_hint" = "Message";
 "chatwoot_send" = "Send";
 "chatwoot_attach" = "Attach";
+"chatwoot_attach_camera" = "Camera";
 "chatwoot_attach_photo" = "Photo or video";
 "chatwoot_attach_file" = "File";
+"chatwoot_camera_unavailable" = "Camera is unavailable";
 "chatwoot_retry" = "Retry";
 "chatwoot_failed" = "Not sent";
 "chatwoot_failed_retry" = "Not sent · Retry";

@@ -149,6 +149,10 @@ final class ChatViewModel: ObservableObject {
         effects.send(.showError(.attachFailed))
     }
 
+    func onCameraUnavailable() {
+        effects.send(.showError(.cameraUnavailable))
+    }
+
     func onAttachmentPicked(url: URL?, mime: String?, afterQueued: @escaping () -> Void = {}) {
         guard let url else { return }
         Task { [weak self] in

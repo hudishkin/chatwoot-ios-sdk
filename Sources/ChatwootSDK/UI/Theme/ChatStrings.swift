@@ -9,8 +9,10 @@ enum ChatStrings {
     static var composerHint: String { string("chatwoot_composer_hint") }
     static var send: String { string("chatwoot_send") }
     static var attach: String { string("chatwoot_attach") }
+    static var attachCamera: String { string("chatwoot_attach_camera") }
     static var attachPhoto: String { string("chatwoot_attach_photo") }
     static var attachFile: String { string("chatwoot_attach_file") }
+    static var cameraUnavailable: String { string("chatwoot_camera_unavailable") }
     static var retry: String { string("chatwoot_retry") }
     static var failed: String { string("chatwoot_failed") }
     static var failedRetry: String { string("chatwoot_failed_retry") }

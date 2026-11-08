@@ -123,7 +123,8 @@ private struct ChatScreen: View {
                 onAttachmentPicked: { url, mime, cleanup in
                     viewModel.onAttachmentPicked(url: url, mime: mime, afterQueued: cleanup)
                 },
-                onAttachFailed: viewModel.onAttachFailed
+                onAttachFailed: viewModel.onAttachFailed,
+                onCameraUnavailable: viewModel.onCameraUnavailable
             )
         }
         .background {
@@ -189,6 +190,7 @@ private struct ChatScreen: View {
                 .animation(ChatScreen.feedAnimation, value: viewModel.state.items)
                 .animation(ChatScreen.feedAnimation, value: viewModel.state.typing)
             }
+            .scrollIndicatorsHidden()
             .rotationEffect(.degrees(180))
             .onAppear { scrollProxy = proxy }
         }
@@ -392,6 +394,7 @@ private struct ChatScreen: View {
         case .sendFailed: return ChatStrings.sendFailed
         case .attachTooLarge: return ChatStrings.attachTooLarge
         case .attachFailed: return ChatStrings.attachFailed
+        case .cameraUnavailable: return ChatStrings.cameraUnavailable
         }
     }
 
@@ -421,5 +424,16 @@ private struct ChatScreen: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: snackbar)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func scrollIndicatorsHidden() -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            self.scrollIndicators(.hidden)
+        } else {
+            self
+        }
     }
 }

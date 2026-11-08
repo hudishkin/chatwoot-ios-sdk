@@ -10,7 +10,7 @@ public struct ChatRequest: Equatable, Sendable {
     /// Sent as `custom_attributes`, but only if the send has to create a conversation.
     public let conversationAttributes: [String: JSONValue]
     /// Rows of the paperclip menu, in this order. An empty list hides the paperclip.
-    /// The default is photo library, then the system file picker.
+    /// The default is the camera, the photo library, then the system file picker.
     public let attachmentMenu: [ChatAttachmentMenuItem]
 
     public init(

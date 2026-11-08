@@ -40,21 +40,25 @@ public struct CustomAttachment: Sendable {
 
 /// One row of the paperclip menu, in the order the host lists them.
 public enum ChatAttachmentMenuItem: Sendable {
-    /// Photos and videos from the photo library. Shown on iOS 16 and later;
-    /// skipped on other systems.
+    /// Take a photo or video. Shown on iOS.
+    /// The host app must set `NSCameraUsageDescription` in its Info.plist.
+    /// Video with sound also needs `NSMicrophoneUsageDescription`.
+    case camera
+    /// Photos and videos from the photo library. Shown on iOS.
     case photo
     /// System file picker.
     case file
     /// Host action.
     case custom(CustomAttachment)
 
-    /// Photo library, then the system file picker.
-    public static let defaultMenu: [ChatAttachmentMenuItem] = [.photo, .file]
+    /// Camera, photo library, then the system file picker.
+    public static let defaultMenu: [ChatAttachmentMenuItem] = [.camera, .photo, .file]
 }
 
 extension ChatAttachmentMenuItem {
     var menuIdentity: String {
         switch self {
+        case .camera: return "camera"
         case .photo: return "photo"
         case .file: return "file"
         case .custom(let action):
@@ -65,10 +69,15 @@ extension ChatAttachmentMenuItem {
     static func visible(_ items: [ChatAttachmentMenuItem]) -> [ChatAttachmentMenuItem] {
         items.filter { item in
             switch item {
+            case .camera:
+                #if os(iOS)
+                return true
+                #else
+                return false
+                #endif
             case .photo:
                 #if os(iOS)
-                if #available(iOS 16, *) { return true }
-                return false
+                return true
                 #else
                 return false
                 #endif
