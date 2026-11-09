@@ -60,6 +60,15 @@ public enum Chatwoot {
         return await core.identify(user: user, identityProvider: provider)
     }
 
+    /// Catch-up sync. With no session but a user identified earlier in this
+    /// process, identifies that user first. Before `initialize` traps.
+    public static func refresh() async {
+        guard let core = core else {
+            preconditionFailure("Chatwoot.refresh used before Chatwoot.initialize(_:)")
+        }
+        await core.catchUp()
+    }
+
     /// Sign-out: resets the session and deletes the SDK's local data. A cleanup
     /// interrupted by a crash is finished by the next `identify`.
     public static func reset() async {
@@ -102,8 +111,9 @@ actor ChatwootCore {
     )
     private(set) lazy var cable: RoomChannelClient = RoomChannelClient(socket: socket)
 
-    private let connectionWanted = CurrentValueSubject<Bool, Never>(true)
+    let connectionWanted = CurrentValueSubject<Bool, Never>(false)
 
+    private var stackWired = false
     private(set) var stack: SessionStack?
 
     struct SessionStack {
@@ -115,12 +125,26 @@ actor ChatwootCore {
         let surveyRepository: SurveyRepository
     }
 
-    private var remembered: (user: ChatwootUser, provider: IdentityProvider)?
+    private struct Remembered {
+        let token: UUID
+        let user: ChatwootUser
+        let provider: IdentityProvider
+    }
+
+    private var remembered: Remembered?
+    private var reidentifyPending = false
     private var resetEpoch = 0
     private let identifyFlag = IdentifyFlag()
+    private let sessionLock = SessionLock()
     private var sessionRecoverer: SessionRecoverer?
+    private var cancelBackground: [() -> Void] = []
 
     private var guardTasks: [Task<Void, Never>] = []
+    private var foregroundTask: Task<Void, Never>?
+    private var backgroundGrace: Task<Void, Never>?
+    private var chatStarts = 0
+    private var hideChatTask: Task<Void, Never>?
+    private let stopGraceMs: UInt64
 
     private var attachmentsDir: URL { dataDirectory.appendingPathComponent("attachments") }
     private var databaseFile: URL { dataDirectory.appendingPathComponent("chatwoot.db") }
@@ -132,7 +156,8 @@ actor ChatwootCore {
         dataDirectory: URL? = nil,
         socket: (any SocketManaging)? = nil,
         appActivity: AnyPublisher<Bool, Never>? = nil,
-        unreadPollIntervalMs: UInt64 = RealtimeController.pollIntervalMs
+        unreadPollIntervalMs: UInt64 = RealtimeController.pollIntervalMs,
+        stopGraceMs: UInt64 = ChatwootCore.stopGraceMs
     ) {
         self.config = config
         self.apiOverride = api
@@ -141,10 +166,17 @@ actor ChatwootCore {
         self.socketOverride = socket
         self.appActivity = appActivity ?? AppActivity.publisher()
         self.unreadPollIntervalMs = unreadPollIntervalMs
+        self.stopGraceMs = stopGraceMs
     }
+
+    static let stopGraceMs: UInt64 = 700
 
     deinit {
         guardTasks.forEach { $0.cancel() }
+        cancelBackground.forEach { $0() }
+        foregroundTask?.cancel()
+        backgroundGrace?.cancel()
+        hideChatTask?.cancel()
         unreadMaintenance?.stop()
         unreadBridge?.cancel()
     }
@@ -153,12 +185,43 @@ actor ChatwootCore {
 
     func identify(user: ChatwootUser, identityProvider: IdentityProvider) async -> Result<Void, ChatwootError> {
         identifyFlag.markCalled()
-        remembered = (user, identityProvider)
-        let result = await runIdentify(user: user, provider: identityProvider, force: false)
-        if case .success = result {
+        let epoch = resetEpoch
+        let result = await withSessionLock { () -> Result<Void, ChatwootError> in
+            self.remembered = Remembered(token: UUID(), user: user, provider: identityProvider)
+            let force = self.reidentifyPending
+            self.reidentifyPending = false
+            if force { CWLog.i(.auth, "identify forces the deferred reidentify") }
+            let result = await self.runIdentify(user: user, provider: identityProvider, force: force)
+            if force, case .failure = result { self.reidentifyPending = true }
+            return result
+        }
+        if case .success = result, resetEpoch == epoch {
             await startSessionStack()
         }
         return result
+    }
+
+    /// Syncs the inbox. With no session but a remembered user, identifies that user first.
+    func catchUp() async {
+        if sessionStore.read() == nil {
+            guard let captured = remembered else { return }
+            let epoch = resetEpoch
+            let task = Task { () -> Result<Void, ChatwootError>? in
+                await self.withSessionLock {
+                    if Task.isCancelled { return nil }
+                    guard let current = self.remembered, current.token == captured.token, self.sessionStore.read() == nil else { return nil }
+                    return await self.runIdentify(user: current.user, provider: current.provider, force: false)
+                }
+            }
+            track(task)
+            let result = await task.value
+            if resetEpoch == epoch, case .success = result {
+                await startSessionStack()
+            }
+            return
+        }
+        await startSessionStack()
+        _ = await stack?.sync.sync(.refresh)
     }
 
     func makeChatRepository(request: ChatRequest) -> ChatRepository? {
@@ -168,30 +231,68 @@ actor ChatwootCore {
             inboxId: config.inboxID,
             request: request,
             transportAvailable: networkMonitor.transportAvailable.eraseToAnyPublisher(),
-            socketState: socket.state
+            socketState: socket.state,
+            refreshInbox: { [weak self] in await self?.catchUp() }
         )
+    }
+
+    /// The chat screen appeared. Presence turns on at once. With `whileChatOpen` the socket is wanted too.
+    func noteChatAppeared() async {
+        chatStarts += 1
+        hideChatTask?.cancel()
+        hideChatTask = nil
+        if config.realtime == .whileChatOpen {
+            connectionWanted.send(true)
+        }
+        await cable.setPresenceWanted(true)
+    }
+
+    /// The chat screen disappeared. Presence turns off at once. The socket stays wanted for `stopGraceMs`
+    /// so a rotation does not drop it.
+    func noteChatDisappeared() async {
+        chatStarts = max(0, chatStarts - 1)
+        await cable.setPresenceWanted(chatStarts > 0)
+        guard chatStarts == 0 else { return }
+        hideChatTask?.cancel()
+        let grace = stopGraceMs
+        hideChatTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: grace * 1_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.hideChatIfIdle()
+        }
     }
 
     func reset() async {
         resetEpoch += 1
         remembered = nil
-        if let stack {
-            await stack.sendQueue.forgetFailures()
-            await stack.realtime.stopNow()
-        }
-        networkMonitor.stop()
-        unreadMaintenance?.stop()
-        unreadMaintenance = nil
-        Chatwoot.noteUnread(0)
-        do {
-            try await wipeLocalData()
-            CWLog.i(.auth, "reset")
-        } catch {
-            CWLog.w(.auth, "reset: local data not cleared (\(type(of: error))), finished before the next identify")
+        reidentifyPending = false
+        cancelBackground.forEach { $0() }
+        cancelBackground.removeAll()
+        await withSessionLock {
+            self.remembered = nil
+            self.reidentifyPending = false
+            if let stack = self.stack {
+                await stack.sendQueue.forgetFailures()
+                await stack.realtime.stopNow()
+            }
+            self.networkMonitor.stop()
+            self.unreadMaintenance?.stop()
+            self.unreadMaintenance = nil
+            Chatwoot.noteUnread(0)
+            do {
+                try await self.wipeLocalData()
+                CWLog.i(.auth, "reset")
+            } catch {
+                CWLog.w(.auth, "reset: local data not cleared (\(type(of: error))), finished before the next identify")
+            }
         }
     }
 
     private func runIdentify(user: ChatwootUser, provider: IdentityProvider, force: Bool) async -> Result<Void, ChatwootError> {
+        if Task.isCancelled {
+            CWLog.i(.auth, "identify cancelled by reset")
+            return .failure(.unknown)
+        }
         let identity: Identity
         switch await provider.fetch() {
         case .success(let fetched):
@@ -199,16 +300,26 @@ actor ChatwootCore {
         case .failure(let error):
             return .failure(error)
         }
+        if Task.isCancelled {
+            CWLog.i(.auth, "identify cancelled by reset")
+            return .failure(.unknown)
+        }
         let result = await interactor.identify(user: user, identity: identity, force: force)
         return result.map { _ in () }
     }
 
     private func startSessionStack() async {
-        guard let stack = await requireStack() else { return }
+        guard !stackWired else { return }
+        stackWired = true
+        guard let stack = await requireStack() else {
+            stackWired = false
+            return
+        }
         networkMonitor.start { [weak self] in
             Task { await self?.socket.networkAvailable() }
         }
         startUnreadMaintenance(stack)
+        bindRealtimePolicy()
         Task { [sync = stack.sync] in
             _ = await sync.sync(.identify)
         }
@@ -221,7 +332,10 @@ actor ChatwootCore {
             unreadMaintenance = UnreadMaintenance(
                 activity: appActivity,
                 pollIntervalMs: unreadPollIntervalMs,
-                isRealtimeLive: { realtime.isLive },
+                isRealtimeLive: { [connectionWanted] in
+                    if !connectionWanted.value { return true }
+                    return realtime.isLive
+                },
                 sync: { _ = await sync.sync(.refresh) }
             )
         }
@@ -336,29 +450,52 @@ actor ChatwootCore {
         let requests = sessionGuard.reidentifyRequests.eagerValues()
         guardTasks.append(Task { [weak self, store = sessionStore, verifier] in
             for await reason in requests {
+                guard let self else { return }
                 guard let stale = store.current else { continue }
                 let verdict = await verifier.verify(session: stale)
-                guard verdict == .stale else { continue }
-                await self?.reidentify(staleSession: stale, reason: reason, verifier: verifier)
+                await self.handleStale(stale, reason: reason, verdict: verdict, verifier: verifier)
             }
         })
     }
 
-    private func reidentify(staleSession: Session, reason: String, verifier: StaleSessionVerifier) async {
-        guard sessionStore.current == staleSession else {
+    private func handleStale(_ stale: Session, reason: String, verdict: StaleSessionVerifier.Verdict, verifier: StaleSessionVerifier) async {
+        guard verdict == .stale else { return }
+        guard sessionStore.current == stale else {
             CWLog.d(.auth, "reidentify request dropped: session already changed")
+            return
+        }
+        guard remembered != nil else {
+            reidentifyPending = true
+            CWLog.w(.auth, "reidentify deferred: identify not called yet")
             return
         }
         guard verifier.tryAcquire() else {
             CWLog.w(.auth, "reidentify capped: one ran recently")
             return
         }
-        guard let remembered else {
-            CWLog.w(.auth, "reidentify skipped: identify not called yet")
-            return
-        }
         CWLog.w(.auth, "reidentify: \(reason)")
-        let result = await runIdentify(user: remembered.user, provider: remembered.provider, force: true)
+        let task = Task { await self.forcedIdentify(stale) }
+        track(task)
+        await task.value
+    }
+
+    /// Replaces `stale` only while it is still the current session. A send that already replaced it wins.
+    private func forcedIdentify(_ stale: Session) async {
+        let result: Result<Void, ChatwootError>? = await withSessionLock {
+            if Task.isCancelled {
+                CWLog.i(.auth, "identify cancelled by reset")
+                return nil
+            }
+            guard let remembered = self.remembered else {
+                CWLog.w(.auth, "reidentify skipped: identify not called yet")
+                return nil
+            }
+            guard self.sessionStore.current == stale else {
+                CWLog.i(.auth, "reidentify skipped: session already changed")
+                return nil
+            }
+            return await self.runIdentify(user: remembered.user, provider: remembered.provider, force: true)
+        }
         if case .success = result, let sync = stack?.sync {
             _ = await sync.sync(.identify)
         }
@@ -367,22 +504,95 @@ actor ChatwootCore {
     /// One identify for a send: the remembered user when there is no session, or a forced one that replaces `stale`.
     private func identifyForSend(stale: Session?) async -> SessionRecovery {
         let epoch = resetEpoch
-        guard let remembered else { return .notIdentified }
-        if let current = sessionStore.current, current != stale {
-            return .done
+        guard let captured = remembered else { return .notIdentified }
+        let task = Task { () -> SessionRecovery in
+            await self.identifyForSendLocked(capturedToken: captured.token, stale: stale)
         }
+        track(task)
+        let recovery = await task.value
         if resetEpoch != epoch { return .aborted }
-        let result = await runIdentify(user: remembered.user, provider: remembered.provider, force: stale != nil)
-        if resetEpoch != epoch || self.remembered == nil { return .aborted }
-        switch result {
-        case .success:
-            if let sync = stack?.sync {
-                Task { _ = await sync.sync(.identify) }
+        return recovery
+    }
+
+    private func identifyForSendLocked(capturedToken: UUID, stale: Session?) async -> SessionRecovery {
+        await withSessionLock {
+            if Task.isCancelled {
+                CWLog.i(.auth, "identify cancelled by reset")
+                return .aborted
             }
-            return .done
-        case .failure(let error):
-            return .failed(error)
+            guard let current = self.remembered else { return .notIdentified }
+            if let existing = self.sessionStore.current, existing != stale {
+                return .done
+            }
+            let result: Result<Void, ChatwootError>
+            if stale != nil {
+                guard self.sessionStore.current == stale else {
+                    CWLog.i(.auth, "reidentify skipped: session already changed")
+                    return .done
+                }
+                result = await self.runIdentify(user: current.user, provider: current.provider, force: true)
+            } else if current.token != capturedToken {
+                return .done
+            } else {
+                result = await self.runIdentify(user: current.user, provider: current.provider, force: false)
+            }
+            switch result {
+            case .success:
+                if let sync = self.stack?.sync {
+                    Task { _ = await sync.sync(.identify) }
+                }
+                return .done
+            case .failure(let error):
+                return .failed(error)
+            }
         }
+    }
+
+    private func hideChatIfIdle() {
+        guard chatStarts == 0, config.realtime == .whileChatOpen else { return }
+        connectionWanted.send(false)
+    }
+
+    private func bindRealtimePolicy() {
+        guard config.realtime == .whileForeground, foregroundTask == nil else { return }
+        let activity = appActivity
+        foregroundTask = Task { [weak self] in
+            for await active in activity.removeDuplicates().values {
+                await self?.setForeground(active)
+            }
+        }
+    }
+
+    private func setForeground(_ active: Bool) {
+        guard config.realtime == .whileForeground else { return }
+        if active {
+            backgroundGrace?.cancel()
+            backgroundGrace = nil
+            connectionWanted.send(true)
+        } else {
+            backgroundGrace?.cancel()
+            let grace = stopGraceMs
+            backgroundGrace = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: grace * 1_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.setConnectionWanted(false)
+            }
+        }
+    }
+
+    private func setConnectionWanted(_ wanted: Bool) {
+        connectionWanted.send(wanted)
+    }
+
+    private func withSessionLock<T>(_ body: () async -> T) async -> T {
+        await sessionLock.acquire()
+        let value = await body()
+        sessionLock.release()
+        return value
+    }
+
+    private func track<T>(_ task: Task<T, Never>) {
+        cancelBackground.append { task.cancel() }
     }
 
     private func recoverer() -> SessionRecoverer {
@@ -446,5 +656,38 @@ final class IdentifyFlag: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return value
+    }
+}
+
+/// One identify or reset at a time. A logout waits until the identify that already
+/// holds it finishes, then wipes, so that identify cannot write a session afterwards.
+private final class SessionLock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        lock.lock()
+        if !busy {
+            busy = true
+            lock.unlock()
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func release() {
+        lock.lock()
+        if waiters.isEmpty {
+            busy = false
+            lock.unlock()
+        } else {
+            let next = waiters.removeFirst()
+            lock.unlock()
+            next.resume()
+        }
     }
 }

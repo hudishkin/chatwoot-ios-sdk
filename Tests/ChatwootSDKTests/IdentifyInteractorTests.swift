@@ -79,6 +79,92 @@ final class IdentifyInteractorTests: XCTestCase {
         XCTAssertEqual(result, .success(Fixtures.session))
         XCTAssertEqual(api.createContactCalls.count, 1, "force сбрасывает сессию и повторяет POST/PATCH")
         XCTAssertEqual(wipeCount, 0, "force не стирает локальные данные, только сессию")
+        XCTAssertEqual(store.owner(), "user-42")
+    }
+
+    func testSameIdentifierDifferentHashRecreatesSessionWithoutWipe() async {
+        stubSuccess()
+        let old = Session(identifier: "user-42", identifierHash: "old-hash", sourceID: "old-src", pubsubToken: "old-tok", contactID: 4)
+        try! store.write(old)
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        guard case .success(let session) = result else {
+            return XCTFail("expected success, got \(result)")
+        }
+        XCTAssertEqual(session.identifierHash, "hash-42")
+        XCTAssertEqual(session.sourceID, "src-1")
+        XCTAssertEqual(wipeCount, 0, "смена хеша не стирает локальные данные")
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        XCTAssertEqual(store.owner(), "user-42")
+    }
+
+    func testFailedReidentifyThenOtherIdentifierWipes() async {
+        api.createContactStub = .failure(ChatwootError.http(code: 503))
+        let old = Session(identifier: "old-user", identifierHash: "old-hash", sourceID: "s", pubsubToken: "p", contactID: 1)
+        try! store.write(old)
+        let failed = await interactor.identify(
+            user: Fixtures.user,
+            identity: Identity(identifier: "old-user", identifierHash: "old-hash"),
+            force: true
+        )
+        XCTAssertEqual(failed, .failure(.http(code: 503)))
+        XCTAssertNil(store.read())
+        XCTAssertEqual(store.owner(), "old-user")
+
+        stubSuccess()
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        guard case .success = result else {
+            return XCTFail("expected success, got \(result)")
+        }
+        XCTAssertEqual(wipeCount, 1, "после потерянной сессии чужой identifier всё равно зачищает данные")
+        XCTAssertEqual(store.owner(), "user-42")
+    }
+
+    func testLegacySessionWithoutOwnerStillWipesAfterFailedReidentify() async throws {
+        api.createContactStub = .failure(ChatwootError.http(code: 503))
+        let old = Session(identifier: "old-user", identifierHash: "old-hash", sourceID: "s", pubsubToken: "p", contactID: 1)
+        try store.write(old)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("data_owner"))
+        let failed = await interactor.identify(
+            user: Fixtures.user,
+            identity: Identity(identifier: "old-user", identifierHash: "old-hash"),
+            force: true
+        )
+        XCTAssertEqual(failed, .failure(.http(code: 503)))
+        XCTAssertNil(store.read())
+        let owner = try String(contentsOf: directory.appendingPathComponent("data_owner"), encoding: .utf8)
+        XCTAssertEqual(owner, "old-user")
+
+        stubSuccess()
+        _ = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        XCTAssertEqual(wipeCount, 1)
+    }
+
+    func testReidentifyKeepsSessionWhenOwnerCannotBeSaved() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        let old = Session(identifier: "user-42", identifierHash: "hash-42", sourceID: "src-1", pubsubToken: "tok-1", contactID: 9)
+        try store.write(old)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("data_owner"))
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("data_owner.tmp"), withIntermediateDirectories: true)
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
+        XCTAssertEqual(result, .failure(.unknown))
+        XCTAssertEqual(store.read(), old)
+        XCTAssertEqual(api.createContactCalls.count, 0, "сессию не сбрасываем, пока владелец данных не записан")
+    }
+
+    func testFailedReidentifyThenSameIdentifierKeepsData() async {
+        api.createContactStub = .failure(ChatwootError.http(code: 503))
+        try! store.write(Fixtures.session)
+        let failed = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
+        XCTAssertEqual(failed, .failure(.http(code: 503)))
+
+        stubSuccess()
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        guard case .success(let session) = result else {
+            return XCTFail("expected success, got \(result)")
+        }
+        XCTAssertEqual(wipeCount, 0)
+        XCTAssertEqual(session.sourceID, "src-1")
+        XCTAssertEqual(store.owner(), "user-42")
     }
 
     func testIdentifierMismatchFailsAndWipes() async {

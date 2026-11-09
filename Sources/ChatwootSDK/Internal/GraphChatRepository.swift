@@ -5,7 +5,6 @@ final class GraphChatRepository: ChatRepository {
     let request: ChatRequest
 
     private let database: ChatwootDatabase
-    private let syncManager: SyncManager
     private let sendQueue: SendQueue
     private let realtime: RealtimeController
     private let unreadTracker: UnreadTracker
@@ -13,6 +12,7 @@ final class GraphChatRepository: ChatRepository {
     private let inboxId: Int
 
     private let conversationAttributes: [String: JSONValue]?
+    private let refreshInbox: () async -> Void
 
     private let conversationSubject = CurrentValueSubject<Int?, Never>(nil)
     private let messagesSubject = CurrentValueSubject<[MessageWithAttachments], Never>([])
@@ -26,17 +26,18 @@ final class GraphChatRepository: ChatRepository {
         inboxId: Int,
         request: ChatRequest,
         transportAvailable: AnyPublisher<Bool, Never>,
-        socketState: CurrentValueSubject<SocketConnectionState, Never>
+        socketState: CurrentValueSubject<SocketConnectionState, Never>,
+        refreshInbox: @escaping () async -> Void
     ) {
         self.request = request
         database = stack.database
-        syncManager = stack.sync
         sendQueue = stack.sendQueue
         realtime = stack.realtime
         unreadTracker = stack.unreadTracker
         surveyRepository = stack.surveyRepository
         self.inboxId = inboxId
         conversationAttributes = request.conversationAttributes.isEmpty ? nil : request.conversationAttributes
+        self.refreshInbox = refreshInbox
 
         repoll()
         stack.database.changes.sink { [weak self] in self?.repoll() }.store(in: &cancellables)
@@ -83,7 +84,7 @@ final class GraphChatRepository: ChatRepository {
     }
 
     func sync() async {
-        _ = await syncManager.sync(.refresh)
+        await refreshInbox()
     }
 
     func catchUpWhileRealtimeDown() async {

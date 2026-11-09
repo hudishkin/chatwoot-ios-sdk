@@ -87,6 +87,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     func onScreenStarted() {
+        Task { await Chatwoot.core?.noteChatAppeared() }
         guard catchUp == nil else { return }
         catchUp = Task { [weak self] in
             await self?.guarded("catch-up") { try await self?.source.catchUpWhileRealtimeDown() ?? () }
@@ -96,6 +97,7 @@ final class ChatViewModel: ObservableObject {
     func onScreenStopped() {
         catchUp?.cancel()
         catchUp = nil
+        Task { await Chatwoot.core?.noteChatDisappeared() }
     }
 
     func onComposerChanged(_ text: String) {

@@ -63,6 +63,7 @@ private struct ChatwootChatContent: View {
             if repository == nil {
                 let core = Chatwoot.core
                 groupMessagesByTime = await core?.config.groupMessagesByTime ?? true
+                await core?.catchUp()
                 repository = await core?.makeChatRepository(request: request)
             }
         }
