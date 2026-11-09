@@ -1,9 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(iOS)
 import AVFoundation
 import PhotosUI
 import UIKit
-import UniformTypeIdentifiers
 #endif
 
 struct ComposerCell: View {
@@ -11,6 +11,8 @@ struct ComposerCell: View {
     let sending: Bool
     let onSend: () -> Void
     let attachmentMenu: [ChatAttachmentMenuItem]
+    let galleryRepresentation: GalleryRepresentation
+    let fileContentTypes: [UTType]
     let onAttachmentPicked: (_ url: URL, _ mime: String, _ cleanup: @escaping () -> Void) -> Void
     let onAttachFailed: () -> Void
     let onCameraUnavailable: () -> Void
@@ -47,7 +49,7 @@ struct ComposerCell: View {
             colors.composerContainer.ignoresSafeArea(edges: .bottom)
         }
         #if !os(iOS)
-        .fileImporter(isPresented: $fileImporterShown, allowedContentTypes: [.item]) { result in
+        .fileImporter(isPresented: $fileImporterShown, allowedContentTypes: fileContentTypes) { result in
             guard case .success(let url) = result else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             do {
@@ -157,6 +159,8 @@ struct ComposerCell: View {
 
     #if os(iOS)
     private func prepareSession() {
+        pickerSession.galleryRepresentation = galleryRepresentation
+        pickerSession.fileContentTypes = fileContentTypes
         pickerSession.onLoading = { customBusy = true }
         pickerSession.onPicked = { url, mime in
             customBusy = false
@@ -288,6 +292,8 @@ struct ComposerCell: View {
 /// into `UIHostingController.view`, which iOS rejects.
 @MainActor
 private final class AttachmentPickerSession: NSObject, PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate {
+    var galleryRepresentation: GalleryRepresentation = .current
+    var fileContentTypes: [UTType] = [.item]
     var onLoading: () -> Void = {}
     var onPicked: (URL, String) -> Void = { _, _ in }
     var onFailed: () -> Void = {}
@@ -298,14 +304,14 @@ private final class AttachmentPickerSession: NSObject, PHPickerViewControllerDel
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.filter = .any(of: [.images, .videos])
         config.selectionLimit = 1
-        config.preferredAssetRepresentationMode = .current
+        config.preferredAssetRepresentationMode = galleryRepresentation.pickerMode
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
         present(picker)
     }
 
     func presentFile() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: fileContentTypes, asCopy: true)
         picker.delegate = self
         picker.allowsMultipleSelection = false
         present(picker)
@@ -473,6 +479,15 @@ private final class AttachmentPickerSession: NSObject, PHPickerViewControllerDel
             .appendingPathExtension("jpg")
         try data.write(to: url)
         return url
+    }
+}
+
+private extension GalleryRepresentation {
+    var pickerMode: PHPickerConfiguration.AssetRepresentationMode {
+        switch self {
+        case .current: return .current
+        case .compatible: return .compatible
+        }
     }
 }
 

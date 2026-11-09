@@ -120,6 +120,8 @@ private struct ChatScreen: View {
                 sending: viewModel.state.sending,
                 onSend: viewModel.onSend,
                 attachmentMenu: viewModel.attachmentMenu,
+                galleryRepresentation: viewModel.galleryRepresentation,
+                fileContentTypes: viewModel.fileContentTypes,
                 onAttachmentPicked: { url, mime, cleanup in
                     viewModel.onAttachmentPicked(url: url, mime: mime, afterQueued: cleanup)
                 },

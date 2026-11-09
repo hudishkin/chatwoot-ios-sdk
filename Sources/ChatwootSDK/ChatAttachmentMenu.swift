@@ -1,5 +1,15 @@
 import Foundation
 
+/// How the photo library picker exports a picked photo or video.
+///
+/// `.current` keeps the file Photos stores: a photo is often HEIC, a video often HEVC.
+/// `.compatible` asks for a widely compatible file. Photos may transcode HEIC to JPEG
+/// and HEVC to H.264. The camera does not use this: a captured photo is already JPEG.
+public enum GalleryRepresentation: Equatable, Sendable {
+    case current
+    case compatible
+}
+
 /// A file the host hands to the composer. The SDK copies it into the send queue
 /// and leaves the original in place.
 public struct ChatAttachmentFile: Equatable, Sendable {

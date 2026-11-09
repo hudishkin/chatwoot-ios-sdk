@@ -1,5 +1,9 @@
 # Chatwoot iOS SDK
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Support chat" width="280">
+</p>
+
 A ready-made chat screen for [Chatwoot](https://www.chatwoot.com) in your iOS app, written in SwiftUI.
 
 Requirements: iOS 15+, Swift 5.9+.
@@ -76,6 +80,45 @@ Chatwoot.unreadCount
         // Badge on the chat entry point.
     }
 ```
+
+## Attachment menu
+
+The paperclip lists the camera, the photo library, and the system file picker, in that order. Pass `attachmentMenu` on `ChatRequest` to change the order, drop a row, or add your own. An empty list hides the paperclip. Camera and photo library rows are shown on iOS only.
+
+The host app must set `NSCameraUsageDescription` for the camera. Video with sound also needs `NSMicrophoneUsageDescription`.
+
+```swift
+import ChatwootSDK
+import UniformTypeIdentifiers
+
+NavigationStack {
+    Chatwoot.chatView(request: ChatRequest(
+        attachmentMenu: [
+            .camera,
+            .photo,
+            .file,
+            .custom(CustomAttachment(title: "Note", systemImage: "note.text") {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("note-\(UUID().uuidString).txt")
+                do {
+                    try Data("Hello\n".utf8).write(to: url)
+                    return ChatAttachmentFile(url: url, mimeType: "text/plain")
+                } catch {
+                    return nil
+                }
+            })
+        ],
+        galleryRepresentation: .compatible,
+        fileContentTypes: [.jpeg, .png, .pdf]
+    ))
+}
+```
+
+A custom row shows `title` and an SF Symbol (`systemImage`, `doc` when omitted). `provide` returns the file to send. Return `nil` to leave the composer unchanged. The SDK copies the file into the send queue and leaves the original in place.
+
+`galleryRepresentation` is the photo library's export mode for both a photo and a video. `.current` (the default) keeps the file Photos stored, often HEIC or HEVC. `.compatible` asks for a widely compatible file: Photos may transcode HEIC to JPEG and HEVC to H.264. A photo taken with the camera is already JPEG and does not use this setting.
+
+`fileContentTypes` is the list the system file picker offers. The default, `[.item]`, is every file. An empty list means the same.
 
 ## Appearance
 
