@@ -32,8 +32,11 @@ final class MockChatwootAPI: ChatwootAPI {
         return try createContactStub.get()
     }
 
+    var contactHandler: ((String) async throws -> ContactInboxDTO)?
+
     func contact(sourceID: String, identifier: String?, identifierHash: String?) async throws -> ContactInboxDTO {
         contactChecks.append(sourceID)
+        if let contactHandler { return try await contactHandler(sourceID) }
         return try contactStub.get()
     }
 

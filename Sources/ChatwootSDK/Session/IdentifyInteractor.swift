@@ -21,17 +21,23 @@ actor IdentifyInteractor {
             CWLog.i(.auth, "unfinished local data reset, finishing it first")
             guard await finishReset() else { return .failure(.unknown) }
         }
-        if let existing = store.read() {
-            if existing.identifier != identity.identifier {
-                CWLog.i(.auth, "identifier changed, local data cleared")
-                guard await finishReset() else { return .failure(.unknown) }
-                store.clear()
-            } else if force {
-                CWLog.i(.auth, "reidentify requested, session dropped")
-                store.clear()
-            } else {
-                return .success(existing)
+        let existing = store.read()
+        // Without a session (a reidentify whose create failed) the stored history still has an owner.
+        let owner = existing?.identifier ?? store.owner()
+        if let owner, owner != identity.identifier {
+            CWLog.i(.auth, "identifier changed, local data cleared")
+            guard await finishReset() else { return .failure(.unknown) }
+            store.clear()
+        } else if let existing, force || existing.identifierHash != identity.identifierHash {
+            do {
+                try store.dropSession()
+            } catch {
+                CWLog.w(.auth, "reidentify skipped: data owner not saved (\(type(of: error)))")
+                return .failure(.unknown)
             }
+            CWLog.i(.auth, force ? "reidentify requested, session dropped" : "identity hash changed, session dropped")
+        } else if let existing {
+            return .success(existing)
         }
         return await create(user: user, identity: identity, customAttributes: customAttributes)
     }

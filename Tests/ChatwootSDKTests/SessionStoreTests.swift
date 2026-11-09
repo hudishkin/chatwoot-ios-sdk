@@ -55,6 +55,53 @@ final class SessionStoreTests: XCTestCase {
         store.clear()
         XCTAssertNil(store.current)
         XCTAssertNil(store.read())
+        XCTAssertNil(store.owner())
+    }
+
+    func testWriteRecordsOwner() throws {
+        try store.write(Fixtures.session)
+        XCTAssertEqual(store.owner(), "user-42")
+        let owner = try String(contentsOf: directory.appendingPathComponent("data_owner"), encoding: .utf8)
+        XCTAssertEqual(owner, "user-42")
+    }
+
+    func testDropSessionKeepsOwnerAcrossInstances() throws {
+        try store.write(Fixtures.session)
+        try store.dropSession()
+        XCTAssertNil(store.read())
+        XCTAssertNil(store.current)
+        let another = SessionStore(directory: directory)
+        XCTAssertEqual(another.owner(), "user-42")
+    }
+
+    func testDropSessionPersistsOwnerMissingFromLegacyStore() throws {
+        try store.write(Fixtures.session)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("data_owner"))
+        try store.dropSession()
+        XCTAssertNil(store.read())
+        let owner = try String(contentsOf: directory.appendingPathComponent("data_owner"), encoding: .utf8)
+        XCTAssertEqual(owner, "user-42")
+    }
+
+    func testDropSessionKeepsSessionWhenOwnerCannotBeWritten() throws {
+        try store.write(Fixtures.session)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("data_owner"))
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("data_owner.tmp"), withIntermediateDirectories: true)
+        XCTAssertThrowsError(try store.dropSession())
+        XCTAssertEqual(store.read(), Fixtures.session)
+    }
+
+    func testOwnerFallsBackToSessionFile() throws {
+        try store.write(Fixtures.session)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("data_owner"))
+        XCTAssertEqual(store.owner(), "user-42")
+    }
+
+    func testOwnerFollowsNewIdentifier() throws {
+        try store.write(Fixtures.session)
+        let next = Session(identifier: "user-43", identifierHash: "hash-43", sourceID: "src-2", pubsubToken: "tok-2", contactID: 10)
+        try store.write(next)
+        XCTAssertEqual(store.owner(), "user-43")
     }
 
     func testSessionDescriptionIsMasked() {
