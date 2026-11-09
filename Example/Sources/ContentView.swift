@@ -104,7 +104,8 @@ struct ContentView: View {
                     return nil
                 }
             })
-        ])
+        ],
+                    galleryRepresentation: .compatible)
     }
 
     private func openChat() async {

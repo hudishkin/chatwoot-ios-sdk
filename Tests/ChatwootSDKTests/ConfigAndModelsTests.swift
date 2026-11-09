@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import XCTest
 @testable import ChatwootSDK
 
@@ -95,6 +96,20 @@ final class ConfigAndModelsTests: XCTestCase {
 
     func testDefaultAttachmentMenuIsCameraPhotoThenFile() {
         XCTAssertEqual(ChatRequest.default.attachmentMenu.map(\.menuIdentity), ["camera", "photo", "file"])
+        XCTAssertEqual(ChatRequest.default.galleryRepresentation, .current)
+        XCTAssertEqual(ChatRequest.default.fileContentTypes, [.item])
+    }
+
+    func testRequestKeepsPickerSettings() {
+        let request = ChatRequest(
+            galleryRepresentation: .compatible,
+            fileContentTypes: [.jpeg, .pdf]
+        )
+        XCTAssertEqual(request.galleryRepresentation, .compatible)
+        XCTAssertEqual(request.fileContentTypes, [.jpeg, .pdf])
+        XCTAssertEqual(ChatRequest(fileContentTypes: []).fileContentTypes, [.item])
+        XCTAssertNotEqual(request, ChatRequest(galleryRepresentation: .current, fileContentTypes: [.jpeg, .pdf]))
+        XCTAssertNotEqual(request, ChatRequest(galleryRepresentation: .compatible, fileContentTypes: [.pdf]))
     }
 
     func testCustomAttachmentTrimsTitleAndDefaultsIcon() {

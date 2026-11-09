@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @MainActor
 final class ChatViewModel: ObservableObject {
@@ -144,6 +145,8 @@ final class ChatViewModel: ObservableObject {
     }
 
     var attachmentMenu: [ChatAttachmentMenuItem] { source.request.attachmentMenu }
+    var galleryRepresentation: GalleryRepresentation { source.request.galleryRepresentation }
+    var fileContentTypes: [UTType] { source.request.fileContentTypes }
 
     func onAttachFailed() {
         effects.send(.showError(.attachFailed))
