@@ -21,6 +21,7 @@ final class IdentifyInteractorTests: XCTestCase {
     }
 
     override func tearDown() {
+        CWLog.install(sink: nil, console: false)
         try? FileManager.default.removeItem(at: directory)
         super.tearDown()
     }
@@ -30,7 +31,7 @@ final class IdentifyInteractorTests: XCTestCase {
         api.updateContactStub = .success(Fixtures.contact(identifier: identifier))
     }
 
-    func testFreshIdentifyCreatesPatchesAndStoresSession() async {
+    func testFreshIdentifyCreatesPatchesAndStoresSession() async throws {
         stubSuccess()
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
         guard case .success(let session) = result else {
@@ -47,7 +48,26 @@ final class IdentifyInteractorTests: XCTestCase {
         XCTAssertEqual(create.avatarURL, "https://app.example.com/avatar.png")
 
         XCTAssertEqual(api.updateContactCalls.count, 1)
-        XCTAssertEqual(api.updateContactCalls[0].sourceID, "src-1", "PATCH идёт по source_id из create")
+        XCTAssertEqual(api.updateContactCalls[0].sourceID, "src-1")
+        let patch = try jsonObject(api.updateContactCalls[0].body)
+        XCTAssertEqual(patch["name"] as? String, "Jane")
+        XCTAssertEqual(patch["identifier_hash"] as? String, "hash-42")
+        XCTAssertEqual(patch["avatar_url"] as? String, "https://app.example.com/avatar.png")
+    }
+
+    func testCreateAndPatchOmitNilAvatar() async throws {
+        let user = ChatwootUser(name: "Jane", avatarURL: nil)
+        stubSuccess()
+        let result = await interactor.identify(user: user, identity: Fixtures.identity)
+        guard case .success = result else { return XCTFail("expected success, got \(result)") }
+        let create = try jsonObject(api.createContactCalls[0])
+        XCTAssertEqual(Set(create.keys), ["identifier", "identifier_hash", "name"])
+        let patch = try jsonObject(api.updateContactCalls[0].body)
+        XCTAssertEqual(patch["identifier"] as? String, "user-42")
+        XCTAssertEqual(patch["identifier_hash"] as? String, "hash-42")
+        XCTAssertEqual(patch["name"] as? String, "Jane")
+        XCTAssertNil(patch["avatar_url"])
+        XCTAssertNil(patch["custom_attributes"])
     }
 
     func testSameIdentifierIsNoOp() async {
@@ -55,8 +75,9 @@ final class IdentifyInteractorTests: XCTestCase {
         try! store.write(Fixtures.session)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
         XCTAssertEqual(result, .success(Fixtures.session))
-        XCTAssertEqual(api.createContactCalls.count, 0, "хранимая сессия — без сетевых вызовов")
+        XCTAssertEqual(api.createContactCalls.count, 0)
         XCTAssertEqual(api.updateContactCalls.count, 0)
+        XCTAssertEqual(wipeCount, 0)
     }
 
     func testDifferentIdentifierWipesFirst() async {
@@ -67,7 +88,7 @@ final class IdentifyInteractorTests: XCTestCase {
         guard case .success(let session) = result else {
             return XCTFail("expected success, got \(result)")
         }
-        XCTAssertEqual(wipeCount, 1, "данные прежнего пользователя стёрты до создания нового")
+        XCTAssertEqual(wipeCount, 1)
         XCTAssertEqual(session.identifier, "user-43")
         XCTAssertEqual(api.createContactCalls.count, 1)
     }
@@ -77,8 +98,8 @@ final class IdentifyInteractorTests: XCTestCase {
         try! store.write(Fixtures.session)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
         XCTAssertEqual(result, .success(Fixtures.session))
-        XCTAssertEqual(api.createContactCalls.count, 1, "force сбрасывает сессию и повторяет POST/PATCH")
-        XCTAssertEqual(wipeCount, 0, "force не стирает локальные данные, только сессию")
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        XCTAssertEqual(wipeCount, 0)
         XCTAssertEqual(store.owner(), "user-42")
     }
 
@@ -92,7 +113,7 @@ final class IdentifyInteractorTests: XCTestCase {
         }
         XCTAssertEqual(session.identifierHash, "hash-42")
         XCTAssertEqual(session.sourceID, "src-1")
-        XCTAssertEqual(wipeCount, 0, "смена хеша не стирает локальные данные")
+        XCTAssertEqual(wipeCount, 0)
         XCTAssertEqual(api.createContactCalls.count, 1)
         XCTAssertEqual(store.owner(), "user-42")
     }
@@ -115,7 +136,7 @@ final class IdentifyInteractorTests: XCTestCase {
         guard case .success = result else {
             return XCTFail("expected success, got \(result)")
         }
-        XCTAssertEqual(wipeCount, 1, "после потерянной сессии чужой identifier всё равно зачищает данные")
+        XCTAssertEqual(wipeCount, 1)
         XCTAssertEqual(store.owner(), "user-42")
     }
 
@@ -148,7 +169,7 @@ final class IdentifyInteractorTests: XCTestCase {
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
         XCTAssertEqual(result, .failure(.unknown))
         XCTAssertEqual(store.read(), old)
-        XCTAssertEqual(api.createContactCalls.count, 0, "сессию не сбрасываем, пока владелец данных не записан")
+        XCTAssertEqual(api.createContactCalls.count, 0)
     }
 
     func testFailedReidentifyThenSameIdentifierKeepsData() async {
@@ -185,7 +206,7 @@ final class IdentifyInteractorTests: XCTestCase {
         api.createContactStub = .failure(ChatwootError.network)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
         XCTAssertEqual(result, .failure(.network))
-        XCTAssertEqual(api.updateContactCalls.count, 0, "PATCH не уходит после неудачного create")
+        XCTAssertEqual(api.updateContactCalls.count, 0)
     }
 
     func testHttpErrorPropagates() async {
@@ -213,6 +234,85 @@ final class IdentifyInteractorTests: XCTestCase {
         let other = Identity(identifier: "user-43", identifierHash: "hash-43")
         let result = await failing.identify(user: Fixtures.user, identity: other)
         XCTAssertEqual(result, .failure(.unknown))
-        XCTAssertEqual(api.createContactCalls.count, 0, "при неудавшейся зачистке сеть не трогаем")
+        XCTAssertEqual(api.createContactCalls.count, 0)
+    }
+
+    func testPatchFailureLogOmitsSecrets() async {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .failure(ChatwootError.http(code: 500))
+        let sink = LineSink()
+        CWLog.install(sink: sink, console: false)
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        XCTAssertEqual(result, .failure(.http(code: 500)))
+        assertLogOmitsSecrets(sink.lines, needle: "identify patch failed: http 500")
+    }
+
+    func testCreateFailureLogUsesOnlyTheErrorType() async {
+        api.createContactStub = .failure(SecretFailure())
+        let sink = LineSink()
+        CWLog.install(sink: sink, console: false)
+        let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        XCTAssertEqual(result, .failure(.unknown))
+        assertLogOmitsSecrets(sink.lines, needle: "identify create failed: SecretFailure")
+    }
+
+    func testSessionDirectoryThatIsAFileIsUnknown() async {
+        let blocked = directory.appendingPathComponent("blocked")
+        FileManager.default.createFile(atPath: blocked.path, contents: Data("not-a-directory".utf8))
+        let blockedStore = SessionStore(directory: blocked)
+        let blockedInteractor = IdentifyInteractor(api: api, store: blockedStore) {}
+        stubSuccess()
+        let sink = LineSink()
+        CWLog.install(sink: sink, console: false)
+        let result = await blockedInteractor.identify(user: Fixtures.user, identity: Fixtures.identity)
+        XCTAssertEqual(result, .failure(.unknown))
+        XCTAssertTrue(sink.lines.contains { $0.contains("session not saved") })
+    }
+
+    func testIdentifierMismatchWhenWipeThrowsIsUnknown() async {
+        stubSuccess(identifier: "someone-else")
+        var wipes = 0
+        let failing = IdentifyInteractor(api: api, store: store) {
+            wipes += 1
+            throw ChatwootError.unknown
+        }
+        let result = await failing.identify(user: Fixtures.user, identity: Fixtures.identity)
+        XCTAssertEqual(result, .failure(.unknown))
+        XCTAssertEqual(wipes, 1)
+        XCTAssertNil(store.read())
+    }
+
+    private func jsonObject<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func assertLogOmitsSecrets(_ lines: [String], needle: String, file: StaticString = #filePath, line: UInt = #line) {
+        let blob = lines.joined(separator: "\n")
+        XCTAssertTrue(blob.contains(needle), blob, file: file, line: line)
+        for secret in ["user-42", "hash-42", "src-1", "tok-1", "Jane"] {
+            XCTAssertFalse(blob.contains(secret), "log contains \(secret): \(blob)", file: file, line: line)
+        }
+    }
+}
+
+private struct SecretFailure: Error, CustomStringConvertible {
+    var description: String { "user-42 hash-42 src-1 tok-1 Jane" }
+}
+
+private final class LineSink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func log(level: LogLevel, domain: String, line: String, error: SanitizedError?) {
+        lock.lock()
+        stored.append(line)
+        lock.unlock()
     }
 }

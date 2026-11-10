@@ -83,7 +83,7 @@ final class UnreadTrackerTests: XCTestCase {
             if condition() { return }
             await sleepMs(10)
         }
-        XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+        XCTAssertTrue(condition(), file: file, line: line)
     }
 
     func testShownMarksLocallyAndSendsAfterDebounce() async throws {
@@ -92,7 +92,7 @@ final class UnreadTrackerTests: XCTestCase {
         try database.conversations.upsert(StorageFixtures.conversation(7, contactLastSeenAt: 100))
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         XCTAssertEqual(try database.conversations.get(7)?.contactLastSeenAt, 500)
-        XCTAssertEqual(api.updateLastSeenCalls.count, 0, "до дебаунса запроса нет")
+        XCTAssertEqual(api.updateLastSeenCalls.count, 0)
         latch.release()
         await eventually { self.api.updateLastSeenCalls.count == 1 }
         XCTAssertEqual(api.updateLastSeenCalls[0].conversationID, 7)
@@ -104,7 +104,7 @@ final class UnreadTrackerTests: XCTestCase {
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 600)
         await eventually { self.api.updateLastSeenCalls.count == 1 }
         await sleepMs(80)
-        XCTAssertEqual(api.updateLastSeenCalls.count, 1, "вторая отметка отменила первую")
+        XCTAssertEqual(api.updateLastSeenCalls.count, 1)
     }
 
     func testUnreadRefreshesOnDatabaseChanges() async throws {
@@ -154,7 +154,7 @@ final class UnreadTrackerTests: XCTestCase {
         defer { cancellable?.cancel() }
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         await eventually { reasons == ["http_404"] }
-        XCTAssertNotNil(try database.conversations.get(7), "история сохранена: протухшая сессия, а не удалённый разговор")
+        XCTAssertNotNil(try database.conversations.get(7))
     }
 
     func testCancelAllDropsPending() async throws {
@@ -162,7 +162,7 @@ final class UnreadTrackerTests: XCTestCase {
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         await tracker.cancelAll()
         await sleepMs(100)
-        XCTAssertEqual(api.updateLastSeenCalls.count, 0, "отменённая квитанция не уходит")
+        XCTAssertEqual(api.updateLastSeenCalls.count, 0)
     }
 
     func testInvalidatedGenerationSkipsSend() async throws {
@@ -170,6 +170,6 @@ final class UnreadTrackerTests: XCTestCase {
         await tracker.onMessagesShown(conversationId: 7, lastCreatedAt: 500)
         generation.invalidate {}
         await sleepMs(100)
-        XCTAssertEqual(api.updateLastSeenCalls.count, 0, "квитанция прежнего поколения не отправляется")
+        XCTAssertEqual(api.updateLastSeenCalls.count, 0)
     }
 }

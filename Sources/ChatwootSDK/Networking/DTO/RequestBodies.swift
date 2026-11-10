@@ -19,6 +19,14 @@ public struct ContactCreateBody: Codable, Equatable {
         self.name = name
         self.avatarURL = avatarURL
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(identifier, forKey: .identifier)
+        try container.encodeIfPresent(identifierHash, forKey: .identifierHash)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
+    }
 }
 
 /// Body of `PATCH contacts/{sourceID}`: `nil` fields are omitted from the request
@@ -49,6 +57,15 @@ public struct ContactUpdateBody: Codable, Equatable {
         self.name = name
         self.avatarURL = avatarURL
         self.customAttributes = customAttributes
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(identifier, forKey: .identifier)
+        try container.encodeIfPresent(identifierHash, forKey: .identifierHash)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
+        try container.encodeIfPresent(customAttributes, forKey: .customAttributes)
     }
 }
 

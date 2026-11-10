@@ -49,11 +49,16 @@ private struct ChatwootChatContent: View {
 
     @State private var repository: ChatRepository?
     @State private var groupMessagesByTime = true
+    @State private var emptyMessage: String?
 
     var body: some View {
         Group {
             if let repository {
-                ChatScreen(repository: repository, groupMessagesByTime: groupMessagesByTime)
+                ChatScreen(
+                    repository: repository,
+                    groupMessagesByTime: groupMessagesByTime,
+                    emptyMessage: emptyMessage
+                )
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,6 +68,7 @@ private struct ChatwootChatContent: View {
             if repository == nil {
                 let core = Chatwoot.core
                 groupMessagesByTime = await core?.config.groupMessagesByTime ?? true
+                emptyMessage = await core?.config.emptyMessage
                 await core?.catchUp()
                 repository = await core?.makeChatRepository(request: request)
             }
@@ -73,7 +79,10 @@ private struct ChatwootChatContent: View {
 private struct ChatScreen: View {
     @StateObject private var viewModel: ChatViewModel
 
-    init(repository: ChatRepository, groupMessagesByTime: Bool) {
+    private let emptyMessage: String?
+
+    init(repository: ChatRepository, groupMessagesByTime: Bool, emptyMessage: String?) {
+        self.emptyMessage = emptyMessage
         _viewModel = StateObject(wrappedValue: ChatViewModel(
             source: repository,
             builder: ChatItemsBuilder(
@@ -202,7 +211,7 @@ private struct ChatScreen: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.state.items.isEmpty {
-                EmptyState()
+                EmptyState(text: emptyMessage ?? ChatStrings.empty)
             }
         }
     }

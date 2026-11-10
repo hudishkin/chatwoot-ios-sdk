@@ -48,13 +48,13 @@ final class SyncManagerTests: XCTestCase {
 
     private func assertSuccess(_ result: Result<Void, ChatwootError>, file: StaticString = #filePath, line: UInt = #line) {
         if case .failure(let error) = result {
-            XCTFail("ожидался успех, получена \(error)", file: file, line: line)
+            XCTFail("expected success, got \(error)", file: file, line: line)
         }
     }
 
     private func assertFailure(_ result: Result<Void, ChatwootError>, _ expected: ChatwootError, file: StaticString = #filePath, line: UInt = #line) {
         guard case .failure(let error) = result else {
-            return XCTFail("ожидалась ошибка \(expected)", file: file, line: line)
+            return XCTFail("expected \(expected)", file: file, line: line)
         }
         XCTAssertEqual(error, expected, file: file, line: line)
     }
@@ -67,8 +67,8 @@ final class SyncManagerTests: XCTestCase {
         let result = await sync.sync(.subscribed)
         assertSuccess(result)
         XCTAssertEqual(try database.messages.messagesOf(conversationId: 7).map(\.message.id), [11, 12])
-        XCTAssertNil(try database.conversations.get(8), "чужой инбокс не сохранён")
-        XCTAssertEqual(try database.messages.syncedThroughId(conversationId: 7), 12, "полный снапшот — беспробельный водяной знак")
+        XCTAssertNil(try database.conversations.get(8))
+        XCTAssertEqual(try database.messages.syncedThroughId(conversationId: 7), 12)
         XCTAssertEqual(sync.lastSuccessAt.value, clock)
     }
 
@@ -100,7 +100,7 @@ final class SyncManagerTests: XCTestCase {
         api.messagesStub = .success([messageDTO(12, createdAt: 200)])
         let result = await sync.sync(.subscribed)
         assertSuccess(result)
-        XCTAssertEqual(api.conversationsCalls, 1, "полный GET не повторялся")
+        XCTAssertEqual(api.conversationsCalls, 1)
         XCTAssertEqual(api.messagesCalls.count, 1)
         XCTAssertEqual(try database.messages.messagesOf(conversationId: 7).map(\.message.id), [11, 12])
         XCTAssertEqual(try database.messages.syncedThroughId(conversationId: 7), 12)
@@ -115,7 +115,7 @@ final class SyncManagerTests: XCTestCase {
         }
         let result = await sync.sync(.refresh)
         assertSuccess(result)
-        XCTAssertEqual(api.messagesCalls.count, 2, "полная страница без водяного знака → ещё страница")
+        XCTAssertEqual(api.messagesCalls.count, 2)
         XCTAssertEqual(api.messagesCalls[1].before, 12)
         XCTAssertEqual(try database.messages.syncedThroughId(conversationId: 7), 31)
     }
@@ -126,7 +126,7 @@ final class SyncManagerTests: XCTestCase {
         api.conversationsStub = .success([conversationDTO(7, messages: [messageDTO(12, createdAt: 200)])])
         let result = await sync.sync(.refresh)
         assertSuccess(result)
-        XCTAssertEqual(api.conversationsCalls, 2, "HTTP на странице → полный проход")
+        XCTAssertEqual(api.conversationsCalls, 2)
         XCTAssertEqual(try database.messages.newestMessageId(conversationId: 7), 12)
     }
 
@@ -142,7 +142,7 @@ final class SyncManagerTests: XCTestCase {
         clock += SyncManager.fullIntervalMs
         let result = await sync.sync(.refresh)
         assertSuccess(result)
-        XCTAssertEqual(api.conversationsCalls, 2, "окно вышло — снова полный проход")
+        XCTAssertEqual(api.conversationsCalls, 2)
     }
 
     func testConcurrentCallsCollapse() async {
@@ -158,15 +158,15 @@ final class SyncManagerTests: XCTestCase {
         let (firstResult, secondResult) = await (first, second)
         assertSuccess(firstResult)
         assertSuccess(secondResult)
-        XCTAssertEqual(api.conversationsCalls, 1, "GET лидера ушёл до присоединения: joiner получил rerun-инкрементал")
-        XCTAssertGreaterThanOrEqual(api.messagesCalls.count, 1, "второй проход — инкрементальный")
+        XCTAssertEqual(api.conversationsCalls, 1)
+        XCTAssertGreaterThanOrEqual(api.messagesCalls.count, 1)
     }
 
     func testApplyRealtimeDropsStaleEpoch() async throws {
         let epoch = sync.currentEpoch
         await sync.invalidate {}
         let applied = try await sync.applyRealtime(epoch: epoch) {
-            XCTFail("запись устаревшего поколения не должна выполняться")
+            XCTFail()
         }
         XCTAssertFalse(applied)
     }
@@ -185,12 +185,56 @@ final class SyncManagerTests: XCTestCase {
         api.conversationsStub = .success([conversationDTO(7, messages: [messageDTO(11, createdAt: 100)])])
         let result = await sync.sync(.identify)
         assertSuccess(result)
-        XCTAssertEqual(api.conversationsCalls, 2, "первая попытка выброшена, снапшот запрошен заново")
+        XCTAssertEqual(api.conversationsCalls, 2)
     }
 
     func testInvalidateMovesEpoch() async {
         let before = sync.currentEpoch
         await sync.invalidate {}
         XCTAssertEqual(sync.currentEpoch, before + 1)
+    }
+
+    func testInvalidateDuringFetchDropsTheSnapshot() async {
+        let entered = expectation(description: "conversations")
+        let gate = ResumeGate()
+        api.conversationsHandler = {
+            entered.fulfill()
+            await gate.wait()
+            return .success([self.conversationDTO(7, messages: [self.messageDTO(11, createdAt: 100)])])
+        }
+        let syncing = Task { await self.sync.sync(.refresh) }
+        await fulfillment(of: [entered], timeout: 2)
+        await sync.invalidate {}
+        gate.resume()
+        _ = await syncing.value
+        XCTAssertEqual(try database.messages.messagesOf(conversationId: 7).count, 0)
+    }
+}
+
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func resume() {
+        lock.lock()
+        resumed = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }

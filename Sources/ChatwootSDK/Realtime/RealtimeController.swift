@@ -74,7 +74,7 @@ actor RealtimeController {
         })
 
         bindTasks.append(Task { [weak self, wanted = connectionWanted, sessions = store.currentSubject] in
-            let stream = Publishers.CombineLatest(wanted, sessions).map { ($0.0, $0.1) }.values
+            let stream = Publishers.CombineLatest(wanted, sessions).eagerValues()
             for await (wanted, session) in stream {
                 await self?.reconcile(wanted: wanted, session: session)
             }

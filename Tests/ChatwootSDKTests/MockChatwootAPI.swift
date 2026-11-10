@@ -16,6 +16,7 @@ final class MockChatwootAPI: ChatwootAPI {
     private(set) var createContactCalls: [ContactCreateBody] = []
     private(set) var updateContactCalls: [(sourceID: String, body: ContactUpdateBody)] = []
     private(set) var contactChecks: [String] = []
+    private(set) var contactQueries: [(sourceID: String, identifier: String?, identifierHash: String?)] = []
     private(set) var conversationsCalls = 0
     private(set) var messagesCalls: [(conversationID: Int, before: Int?)] = []
     private(set) var createMessageCalls: [(conversationID: Int, content: String?, echoID: String)] = []
@@ -26,9 +27,12 @@ final class MockChatwootAPI: ChatwootAPI {
     var conversationsHandler: (() async -> Result<[ConversationDTO], Error>)?
     var messagesHandler: ((Int, Int?) async -> Result<[MessageDTO], Error>)?
     var updateMessageHandler: ((Int, Int, UpdateMessageBody) async throws -> MessageDTO)?
+    var createContactHandler: ((ContactCreateBody) async throws -> ContactInboxDTO)?
+    var createMessageHandler: ((String, Int, MessageCreateBody) async throws -> MessageDTO)?
 
     func createContact(_ body: ContactCreateBody) async throws -> ContactInboxDTO {
         createContactCalls.append(body)
+        if let createContactHandler { return try await createContactHandler(body) }
         return try createContactStub.get()
     }
 
@@ -36,6 +40,7 @@ final class MockChatwootAPI: ChatwootAPI {
 
     func contact(sourceID: String, identifier: String?, identifierHash: String?) async throws -> ContactInboxDTO {
         contactChecks.append(sourceID)
+        contactQueries.append((sourceID, identifier, identifierHash))
         if let contactHandler { return try await contactHandler(sourceID) }
         return try contactStub.get()
     }
@@ -68,6 +73,7 @@ final class MockChatwootAPI: ChatwootAPI {
 
     func createMessage(sourceID: String, conversationID: Int, body: MessageCreateBody) async throws -> MessageDTO {
         createMessageCalls.append((conversationID, body.content, body.echoID))
+        if let createMessageHandler { return try await createMessageHandler(sourceID, conversationID, body) }
         return try createMessageStub.get()
     }
 

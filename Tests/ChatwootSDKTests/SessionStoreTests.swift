@@ -38,7 +38,7 @@ final class SessionStoreTests: XCTestCase {
         try store.write(Fixtures.session)
         try store.markCleanupRequired()
         XCTAssertTrue(store.isCleanupRequired())
-        XCTAssertNil(store.read(), "сессия скрыта, пока требуется очистка")
+        XCTAssertNil(store.read())
         XCTAssertNil(store.current)
         store.clearCleanupRequired()
         XCTAssertEqual(store.read(), Fixtures.session)

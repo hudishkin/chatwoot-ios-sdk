@@ -197,6 +197,10 @@ actor ChatwootCore {
         }
         if case .success = result, resetEpoch == epoch {
             await startSessionStack()
+            // A reused session still catches up; a replaced one must sync after the write, not with the previous token.
+            if resetEpoch == epoch {
+                _ = await stack?.sync.sync(.identify)
+            }
         }
         return result
     }
@@ -217,6 +221,9 @@ actor ChatwootCore {
             let result = await task.value
             if resetEpoch == epoch, case .success = result {
                 await startSessionStack()
+                if resetEpoch == epoch {
+                    _ = await stack?.sync.sync(.identify)
+                }
             }
             return
         }
@@ -320,9 +327,6 @@ actor ChatwootCore {
         }
         startUnreadMaintenance(stack)
         bindRealtimePolicy()
-        Task { [sync = stack.sync] in
-            _ = await sync.sync(.identify)
-        }
     }
 
     private func startUnreadMaintenance(_ stack: SessionStack) {
@@ -557,7 +561,7 @@ actor ChatwootCore {
         guard config.realtime == .whileForeground, foregroundTask == nil else { return }
         let activity = appActivity
         foregroundTask = Task { [weak self] in
-            for await active in activity.removeDuplicates().values {
+            for await active in activity.removeDuplicates().eagerValues() {
                 await self?.setForeground(active)
             }
         }

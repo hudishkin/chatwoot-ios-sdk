@@ -88,7 +88,7 @@ final class SocketConnectionManagerTests: XCTestCase {
             return XCTFail("expected waitingToRetry, got \(manager.state.value)")
         }
         await sleepMs(600)
-        XCTAssertEqual(transport.connectCalls, 2, "ретрай переоткрыл соединение")
+        XCTAssertEqual(transport.connectCalls, 2)
     }
 
     func testDesiredFalseFromConnectedClosesGracefully() async {
@@ -123,6 +123,6 @@ final class SocketConnectionManagerTests: XCTestCase {
         guard case .waitingToRetry(let attempt, _) = manager.state.value else {
             return XCTFail("expected waitingToRetry, got \(manager.state.value)")
         }
-        XCTAssertEqual(attempt, 0, "стабильная сессия сбросила счётчик")
+        XCTAssertEqual(attempt, 0)
     }
 }

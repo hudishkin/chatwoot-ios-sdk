@@ -27,7 +27,7 @@ final class UnreadMaintenanceTests: XCTestCase {
             if condition() { return }
             await sleepMs(10)
         }
-        XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+        XCTAssertTrue(condition(), file: file, line: line)
     }
 
     func testFirstActiveSnapshotDoesNotSync() async {
@@ -40,7 +40,7 @@ final class UnreadMaintenanceTests: XCTestCase {
         )
         maintenance.start()
         await sleepMs(80)
-        XCTAssertEqual(syncs.value, 0, "первый активный снимок не дублирует синк identify")
+        XCTAssertEqual(syncs.value, 0)
         maintenance.stop()
     }
 
@@ -58,7 +58,7 @@ final class UnreadMaintenanceTests: XCTestCase {
         activity.send(true)
         await eventually { syncs.value == 1 }
         await sleepMs(80)
-        XCTAssertEqual(syncs.value, 1, "таймер ещё не должен сработать")
+        XCTAssertEqual(syncs.value, 1)
         maintenance.stop()
     }
 
@@ -85,7 +85,7 @@ final class UnreadMaintenanceTests: XCTestCase {
         )
         maintenance.start()
         await sleepMs(120)
-        XCTAssertEqual(syncs.value, 0, "живой сокет сам двигает счётчик")
+        XCTAssertEqual(syncs.value, 0)
         maintenance.stop()
     }
 }
