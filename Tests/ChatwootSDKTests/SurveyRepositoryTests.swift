@@ -50,7 +50,7 @@ final class SurveyRepositoryTests: XCTestCase {
             let result = await repository.submit(conversationId: 7, messageId: 55, rating: rating, comment: nil)
             XCTAssertEqual(result, .failed)
         }
-        XCTAssertEqual(api.updateMessageCalls.count, 0, "невалидная оценка не уходит в сеть")
+        XCTAssertEqual(api.updateMessageCalls.count, 0)
     }
 
     func testSuccessPersistsAndEmits() async {
@@ -61,9 +61,9 @@ final class SurveyRepositoryTests: XCTestCase {
         XCTAssertEqual(result, .sent)
         XCTAssertEqual(api.updateMessageCalls.count, 1)
         let call = api.updateMessageCalls[0]
-        XCTAssertEqual(call.body, .csat(rating: 4, feedback: nil), "пустой отзыв не отправляется")
+        XCTAssertEqual(call.body, .csat(rating: 4, feedback: nil))
         XCTAssertEqual(submissions, [SurveySubmission(conversationId: 7, messageId: 55, rating: 4)])
-        XCTAssertEqual(try database.messages.get(55)?.contentType, "input_csat", "ответ сохранён как message.updated")
+        XCTAssertEqual(try database.messages.get(55)?.contentType, "input_csat")
     }
 
     func testCommentTrimmed() async {
@@ -119,8 +119,8 @@ final class SurveyRepositoryTests: XCTestCase {
         async let second = repository.submit(conversationId: 7, messageId: 55, rating: 1, comment: "другой ответ")
         let (firstResult, secondResult) = await (first, second)
         XCTAssertEqual(firstResult, .sent)
-        XCTAssertEqual(secondResult, .sent, "второй вызов ждёт и получает итог первого")
-        XCTAssertEqual(api.updateMessageCalls.count, 1, "один запрос на сообщение")
+        XCTAssertEqual(secondResult, .sent)
+        XCTAssertEqual(api.updateMessageCalls.count, 1)
     }
 
     func testResetSessionDoesNotEmit() async {
@@ -132,6 +132,6 @@ final class SurveyRepositoryTests: XCTestCase {
         }
         let result = await repository.submit(conversationId: 7, messageId: 55, rating: 4, comment: nil)
         XCTAssertEqual(result, .sent)
-        XCTAssertEqual(submissions, [], "ответ за сброшенную сессию не репортится")
+        XCTAssertEqual(submissions, [])
     }
 }

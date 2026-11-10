@@ -13,6 +13,7 @@ final class ChatwootFacadeTests: XCTestCase {
     }
 
     override func tearDown() {
+        CWLog.install(sink: nil, console: false)
         Chatwoot.installForTesting(nil)
         try? FileManager.default.removeItem(at: directory)
         super.tearDown()
@@ -88,11 +89,11 @@ final class ChatwootFacadeTests: XCTestCase {
         await Chatwoot.reset()
         session = await core.session
         XCTAssertNil(session)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session.json").path), "файл сессии удалён")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session.json").path))
         let store = await core.sessionStore
-        XCTAssertFalse(store.isCleanupRequired(), "маркер очистки снят после успешной зачистки")
+        XCTAssertFalse(store.isCleanupRequired())
         let stack = await core.stack
-        XCTAssertEqual(try stack?.database.messages.messagesOfInbox(inboxId: 1).count, 0, "таблицы стёрты, файл базы остаётся")
+        XCTAssertEqual(try stack?.database.messages.messagesOfInbox(inboxId: 1).count, 0)
     }
 
     func testIdentifyAssemblesStackAndStartsSync() async throws {
@@ -102,7 +103,7 @@ final class ChatwootFacadeTests: XCTestCase {
         let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
         assertSuccess(result)
         let stack = await core.stack
-        XCTAssertNotNil(stack, "стек данных собран после identify")
+        XCTAssertNotNil(stack)
         XCTAssertEqual(api.conversationsCalls, 1)
     }
 
@@ -115,8 +116,8 @@ final class ChatwootFacadeTests: XCTestCase {
         XCTAssertEqual(api.conversationsCalls, 1)
 
         assertSuccess(await Chatwoot.identify(user: Fixtures.user, identity: provider))
-        XCTAssertEqual(api.createContactCalls.count, 1, "тот же identifier и хеш не создают контакт заново")
-        XCTAssertEqual(api.conversationsCalls, 2, "повторный identify всё равно синхронизирует переписку")
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        XCTAssertEqual(api.conversationsCalls, 2)
     }
 
     func testIdentifyAgainWithNewHashReplacesSession() async throws {
@@ -147,7 +148,7 @@ final class ChatwootFacadeTests: XCTestCase {
         XCTAssertEqual(api.createContactCalls.count, 1)
         core.sessionGuard.request("test_signal")
         await eventually { self.api.createContactCalls.count == 2 }
-        XCTAssertEqual(api.contactChecks, ["src-1"], "сигнал подтверждён GET contacts/{source_id} до ре-идентификации")
+        XCTAssertEqual(api.contactChecks, ["src-1"])
     }
 
     func testHealthySessionSignalDoesNotReidentify() async throws {
@@ -159,7 +160,7 @@ final class ChatwootFacadeTests: XCTestCase {
         core.sessionGuard.request("test_signal")
         await eventually { self.api.contactChecks.count == 1 }
         try? await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(api.createContactCalls.count, 1, "живая сессия не ре-идентифицируется")
+        XCTAssertEqual(api.createContactCalls.count, 1)
     }
 
     private var foreground: AnyPublisher<Bool, Never> { Just(true).eraseToAnyPublisher() }
@@ -191,7 +192,7 @@ final class ChatwootFacadeTests: XCTestCase {
             if condition() { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+        XCTAssertTrue(condition(), file: file, line: line)
     }
 
     func testUnreadCountFollowsLocalMessagesAndClearsOnReset() async throws {
@@ -246,7 +247,7 @@ final class ChatwootFacadeTests: XCTestCase {
         _ = await identifyTask.value
         await resetTask.value
         let session = await core.session
-        XCTAssertNil(session, "выход не оставляет сессию, которую identify дописал после зачистки")
+        XCTAssertNil(session)
     }
 
     func testStaleSessionBeforeIdentifyIsForcedOnNextIdentify() async throws {
@@ -255,14 +256,16 @@ final class ChatwootFacadeTests: XCTestCase {
         api.conversationsStub = .failure(ChatwootError.http(code: 401))
         api.createContactStub = .success(Fixtures.contactInbox())
         api.updateContactStub = .success(Fixtures.contact())
+        let logs = LineSink()
+        CWLog.install(sink: logs, console: false)
         let core = try await installCore()
         await core.catchUp()
-        await eventually { self.api.contactChecks.count >= 1 }
-        XCTAssertEqual(api.createContactCalls.count, 0, "до identify контакт заново не создаётся")
+        await eventually { logs.lines.contains { $0.contains("reidentify deferred") } }
+        XCTAssertEqual(api.createContactCalls.count, 0)
 
         let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
         assertSuccess(result)
-        XCTAssertEqual(api.createContactCalls.count, 1, "отложенный reidentify выполняется принудительно")
+        XCTAssertEqual(api.createContactCalls.count, 1)
     }
 
     func testReidentifySkipsWhenSessionAlreadyReplaced() async throws {
@@ -286,7 +289,7 @@ final class ChatwootFacadeTests: XCTestCase {
         gate.resume()
         try? await Task.sleep(nanoseconds: 150_000_000)
         let sourceID = await core.session?.sourceID
-        XCTAssertEqual(api.createContactCalls.count, 1, "уже заменённая сессия не ре-идентифицируется")
+        XCTAssertEqual(api.createContactCalls.count, 1)
         XCTAssertEqual(sourceID, "src-2")
         XCTAssertGreaterThan(api.contactChecks.count, checksBefore)
     }
@@ -301,7 +304,7 @@ final class ChatwootFacadeTests: XCTestCase {
         let creates = api.createContactCalls.count
         await Chatwoot.refresh()
         let session = await core.session
-        XCTAssertEqual(api.createContactCalls.count, creates + 1, "refresh без сессии заново идентифицирует запомненного пользователя")
+        XCTAssertEqual(api.createContactCalls.count, creates + 1)
         XCTAssertNotNil(session)
     }
 
@@ -318,13 +321,13 @@ final class ChatwootFacadeTests: XCTestCase {
         let core = try await installCore(config: config, activity: activity.eraseToAnyPublisher(), stopGraceMs: 40)
         _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
         let beforeChat = await core.connectionWanted.value
-        XCTAssertFalse(beforeChat, "вне чата сокет не нужен")
+        XCTAssertFalse(beforeChat)
         await core.noteChatAppeared()
         let whileChat = await core.connectionWanted.value
         XCTAssertTrue(whileChat)
         await core.noteChatDisappeared()
         let duringGrace = await core.connectionWanted.value
-        XCTAssertTrue(duringGrace, "короткое скрытие не рвёт сокет")
+        XCTAssertTrue(duringGrace)
         try? await Task.sleep(nanoseconds: 80_000_000)
         let afterGrace = await core.connectionWanted.value
         XCTAssertFalse(afterGrace)
@@ -336,15 +339,17 @@ final class ChatwootFacadeTests: XCTestCase {
         api.conversationsStub = .failure(ChatwootError.http(code: 401))
         api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
         api.updateContactStub = .success(Fixtures.contact())
+        let logs = LineSink()
+        CWLog.install(sink: logs, console: false)
         let core = try await installCore()
         await core.catchUp()
-        await eventually { self.api.contactChecks.count >= 1 }
+        await eventually { logs.lines.contains { $0.contains("reidentify deferred") } }
         XCTAssertEqual(api.createContactCalls.count, 0)
         api.conversationsStub = .success([])
 
         let failed = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .failure(.network)))
         assertFailure(failed, .network)
-        XCTAssertEqual(api.createContactCalls.count, 0, "неудачный identify не снимает отложенный reidentify")
+        XCTAssertEqual(api.createContactCalls.count, 0)
 
         let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
         assertSuccess(result)
@@ -369,10 +374,10 @@ final class ChatwootFacadeTests: XCTestCase {
         core.sessionGuard.request("http_404")
         await eventually { self.api.createContactCalls.count == 2 }
         try? await Task.sleep(nanoseconds: 150_000_000)
-        XCTAssertEqual(api.createContactCalls.count, 2, "пачка сигналов — один reidentify, следующий уже под капом")
+        XCTAssertEqual(api.createContactCalls.count, 2)
         let session = await core.session
         XCTAssertEqual(session?.pubsubToken, "tok-2")
-        XCTAssertTrue(socket.desiredHistory.contains(false), "старое соединение рвётся вместе с сессией")
+        XCTAssertTrue(socket.desiredHistory.contains(false))
         XCTAssertTrue(socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-2")))
     }
 
@@ -388,7 +393,7 @@ final class ChatwootFacadeTests: XCTestCase {
         await eventually { socket.desiredHistory.contains(false) }
         await eventually { self.api.contactChecks.count >= 1 }
         try? await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(api.createContactCalls.count, 1, "живой контакт после disconnect не пересоздаётся")
+        XCTAssertEqual(api.createContactCalls.count, 1)
         let session = await core.session
         XCTAssertEqual(session?.pubsubToken, "tok-1")
     }
@@ -422,7 +427,7 @@ final class ChatwootFacadeTests: XCTestCase {
         await eventually { self.api.contactChecks.count >= 1 }
         try? await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(api.createContactCalls.count, 1)
-        XCTAssertEqual(api.contactChecks.count, 1, "три пропуска подтверждают сессию одним GET")
+        XCTAssertEqual(api.contactChecks.count, 1)
     }
 
     func testConversations404WithUnknownContactDoesNotReidentify() async throws {
@@ -475,7 +480,7 @@ final class ChatwootFacadeTests: XCTestCase {
         gate.resume()
         _ = await syncing.value
         let count = try await core.stack?.database.messages.messagesOfInbox(inboxId: 1).count
-        XCTAssertEqual(count, 0, "ответ, пришедший после reset, не записывается")
+        XCTAssertEqual(count, 0)
     }
 
     func testResetDuringMessagePostDoesNotStoreTheAck() async throws {
@@ -519,11 +524,11 @@ final class ChatwootFacadeTests: XCTestCase {
         let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(other)))
         assertSuccess(result)
         await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-2")) }
-        XCTAssertTrue(socket.desiredHistory.contains(false), "сокет прежнего пользователя отключается")
+        XCTAssertTrue(socket.desiredHistory.contains(false))
         let session = await core.session
         XCTAssertEqual(session?.identifier, "user-43")
         let count = try await core.stack?.database.messages.messagesOfInbox(inboxId: 1).count
-        XCTAssertEqual(count, 0, "чужой identifier стирает локальную историю")
+        XCTAssertEqual(count, 0)
     }
 
     func testSecondInitializeIsIgnored() throws {
@@ -532,7 +537,7 @@ final class ChatwootFacadeTests: XCTestCase {
         Chatwoot.initialize(config)
         let first = Chatwoot.core
         Chatwoot.initialize(config)
-        XCTAssertTrue(first === Chatwoot.core, "второй initialize не подменяет граф")
+        XCTAssertTrue(first === Chatwoot.core)
     }
 }
 
@@ -551,6 +556,23 @@ private final class PausingIdentityProvider: IdentityProvider, @unchecked Sendab
     }
 
     func resume() { gate.resume() }
+}
+
+private final class LineSink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func log(level: LogLevel, domain: String, line: String, error: SanitizedError?) {
+        lock.lock()
+        stored.append(line)
+        lock.unlock()
+    }
 }
 
 private final class ResumeGate: @unchecked Sendable {

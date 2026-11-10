@@ -561,7 +561,7 @@ actor ChatwootCore {
         guard config.realtime == .whileForeground, foregroundTask == nil else { return }
         let activity = appActivity
         foregroundTask = Task { [weak self] in
-            for await active in activity.removeDuplicates().values {
+            for await active in activity.removeDuplicates().eagerValues() {
                 await self?.setForeground(active)
             }
         }

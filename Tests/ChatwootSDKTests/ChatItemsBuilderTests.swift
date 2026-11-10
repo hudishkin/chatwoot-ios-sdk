@@ -23,7 +23,7 @@ final class ChatItemsBuilderTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.key), ["m:2", "m:1", "h:\(feedNoon / 86_400)"])
         guard case .dateHeader(let header) = items.last else {
-            return XCTFail("последняя строка — заголовок дня")
+            return XCTFail()
         }
         XCTAssertEqual(header.relation, .today)
     }
@@ -236,7 +236,7 @@ final class ChatItemsBuilderTests: XCTestCase {
         let items = build(FeedInput(messages: [feedSurvey(1, display: "emoji")], pending: [], conversationId: feedConversation))
 
         for item in items {
-            if case .system = item { XCTFail("опрос не должен стать системной строкой") }
+            if case .system = item { XCTFail() }
         }
         let surveys = items.compactMap { item -> ChatItem.Survey? in
             guard case .survey(let survey) = item else { return nil }

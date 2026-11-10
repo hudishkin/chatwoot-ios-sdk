@@ -20,7 +20,7 @@ final class MessageDAOTests: XCTestCase {
         let stored = try dao.get(101)
         XCTAssertEqual(stored?.content, "привет")
         let conversation = try database.conversations.get(7)
-        XCTAssertEqual(conversation?.lastActivityAt, 500, "активность разговора сдвинулась на сообщение")
+        XCTAssertEqual(conversation?.lastActivityAt, 500)
     }
 
     func testApplyServerMessageWithEchoDeletesPending() throws {
@@ -28,7 +28,7 @@ final class MessageDAOTests: XCTestCase {
         let message = StorageFixtures.message(102, conversationId: 7, createdAt: 20)
         try dao.applyServerMessage(message, attachments: [], echoId: "echo-1")
 
-        XCTAssertNil(try database.pending.get("echo-1"), "очередь очистилась")
+        XCTAssertNil(try database.pending.get("echo-1"))
         let echoes = try dao.echoesOf(conversationId: 7)
         XCTAssertEqual(echoes, [StoredEcho(messageId: 102, echoId: "echo-1")])
     }
@@ -39,7 +39,7 @@ final class MessageDAOTests: XCTestCase {
         try dao.applyServerMessage(message, attachments: [StorageFixtures.attachment(2, messageId: 103)], echoId: nil)
 
         let stored = try dao.messagesOf(conversationId: 7)
-        XCTAssertEqual(stored.first?.attachments.map(\.id), [2], "старые вложения заменены, а не продублированы")
+        XCTAssertEqual(stored.first?.attachments.map(\.id), [2])
     }
 
     func testReplaceConversationsKeepsNewerContactLastSeen() throws {
@@ -48,7 +48,7 @@ final class MessageDAOTests: XCTestCase {
         try dao.replaceConversations([incoming], messages: [], attachments: [])
 
         let stored = try database.conversations.get(8)
-        XCTAssertEqual(stored?.contactLastSeenAt, 900, "локальное seen не откатилось старым серверным")
+        XCTAssertEqual(stored?.contactLastSeenAt, 900)
     }
 
     func testReplaceConversationsAdvancesWatermark() throws {
@@ -64,7 +64,7 @@ final class MessageDAOTests: XCTestCase {
         let messages = [StorageFixtures.message(15, conversationId: 7, createdAt: 100)]
         try dao.applyMessagesPage(conversationId: 7, messages: messages, attachments: [], syncedThroughId: 15)
         try dao.applyMessagesPage(conversationId: 7, messages: [], attachments: [], syncedThroughId: 10)
-        XCTAssertEqual(try dao.syncedThroughId(conversationId: 7), 15, "водяной знак не пошёл назад")
+        XCTAssertEqual(try dao.syncedThroughId(conversationId: 7), 15)
     }
 
     func testDeleteConversationRemovesEverythingAndDetachesPending() throws {
@@ -78,8 +78,8 @@ final class MessageDAOTests: XCTestCase {
         XCTAssertNil(try database.conversations.get(7))
         XCTAssertEqual(try dao.echoesOf(conversationId: 7), [])
         let pending = try database.pending.get("echo-21")
-        XCTAssertNotNil(pending, "отправка осталась в очереди")
-        XCTAssertNil(pending?.conversationId, "и ищет разговор заново")
+        XCTAssertNotNil(pending)
+        XCTAssertNil(pending?.conversationId)
     }
 
     func testMessagesOfInboxJoinsConversations() throws {
@@ -89,7 +89,7 @@ final class MessageDAOTests: XCTestCase {
         try dao.applyServerMessage(StorageFixtures.message(31, conversationId: 10, createdAt: 1), attachments: [], echoId: nil)
 
         let inboxOne = try dao.messagesOfInbox(inboxId: 1)
-        XCTAssertEqual(inboxOne.map(\.message.id), [30], "чужой инбокс не попал")
+        XCTAssertEqual(inboxOne.map(\.message.id), [30])
     }
 
     func testUnreadCount() throws {
@@ -103,7 +103,7 @@ final class MessageDAOTests: XCTestCase {
         try dao.applyServerMessage(StorageFixtures.message(46, conversationId: 11, type: 3, contentType: "text", createdAt: 150), attachments: [], echoId: nil)
         try dao.applyServerMessage(StorageFixtures.message(47, conversationId: 11, type: 3, contentType: "input_email", createdAt: 150), attachments: [], echoId: nil)
 
-        XCTAssertEqual(try dao.unreadCount(inboxId: 1), 3, "ответ агента + неотвеченный опрос + автоответ")
+        XCTAssertEqual(try dao.unreadCount(inboxId: 1), 3)
     }
 
     func testNewestMessageId() throws {

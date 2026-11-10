@@ -77,11 +77,11 @@ final class SendQueueTests: XCTestCase {
         await queue.enqueueText("привет")
         let delivered = await waitFor { try self.database.messages.get(101) != nil }
 
-        XCTAssertTrue(delivered, "сообщение сохранено после ack")
-        XCTAssertEqual(api.createConversationCalls, 1, "разговоров не было — создан")
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(api.createConversationCalls, 1)
         XCTAssertEqual(api.createMessageCalls.count, 1)
         XCTAssertEqual(api.createMessageCalls[0].echoID, "echo-1")
-        XCTAssertEqual(try database.pending.getAll(), [], "очередь очищена")
+        XCTAssertEqual(try database.pending.getAll(), [])
         XCTAssertEqual(try database.messages.echoesOf(conversationId: 7), [StoredEcho(messageId: 101, echoId: "echo-1")])
         XCTAssertEqual(queue.inFlight.value, [])
     }
@@ -94,7 +94,7 @@ final class SendQueueTests: XCTestCase {
         await queue.enqueueText("привет")
         let failed = await waitFor { try self.database.pending.get("echo-1")?.state == .failed }
 
-        XCTAssertTrue(failed, "сетевая неудача — отправка сбойная")
+        XCTAssertTrue(failed)
         XCTAssertEqual(queue.inFlight.value, [])
     }
 
@@ -110,7 +110,7 @@ final class SendQueueTests: XCTestCase {
         let delivered = await waitFor { try self.database.messages.get(102) != nil }
 
         XCTAssertTrue(delivered)
-        XCTAssertEqual(api.createMessageCalls.count, 2, "POST повторён")
+        XCTAssertEqual(api.createMessageCalls.count, 2)
         XCTAssertEqual(try database.pending.getAll(), [])
     }
 
@@ -131,8 +131,8 @@ final class SendQueueTests: XCTestCase {
         await queue.retry("echo-1")
         let cleared = await waitFor { try self.database.pending.get("echo-1") == nil }
 
-        XCTAssertTrue(cleared, "дубликат найден, отправка снята с очереди")
-        XCTAssertEqual(api.createMessageCalls.count, 1, "повторный POST не уходил")
+        XCTAssertTrue(cleared)
+        XCTAssertEqual(api.createMessageCalls.count, 1)
         XCTAssertEqual(try database.messages.echoesOf(conversationId: 7), [StoredEcho(messageId: 150, echoId: "echo-1")])
     }
 
@@ -142,7 +142,7 @@ final class SendQueueTests: XCTestCase {
         try database.pending.upsert(StorageFixtures.pending("echo-old", state: .queued, createdAt: 1))
         await start()
         let failed = await waitFor { try self.database.pending.get("echo-old")?.state == .failed }
-        XCTAssertTrue(failed, "после рестарта QUEUED стал FAILED")
+        XCTAssertTrue(failed)
     }
 
     func testEnqueueFileDeliversAndCleansUp() async throws {
@@ -154,7 +154,7 @@ final class SendQueueTests: XCTestCase {
 
         let result = await queue.enqueueFile(url: source, mime: "text/plain", caption: "смотри")
         guard case .success = result else {
-            return XCTFail("ожидался успех постановки")
+            return XCTFail()
         }
         let delivered = await waitFor { try self.database.messages.get(103) != nil }
 
@@ -162,7 +162,7 @@ final class SendQueueTests: XCTestCase {
         XCTAssertEqual(api.createMessageCalls.count, 1)
         XCTAssertEqual(api.createMessageCalls[0].content, "смотри")
         let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: attachmentsDir.path)) ?? []
-        XCTAssertEqual(leftovers, [], "скопированный файл удалён после ack")
+        XCTAssertEqual(leftovers, [])
     }
 
     func testTooLargeFileRejected() async throws {
@@ -175,10 +175,10 @@ final class SendQueueTests: XCTestCase {
 
         let result = await queue.enqueueFile(url: source, mime: "application/octet-stream")
         guard case .failure(let error) = result else {
-            return XCTFail("ожидалась ошибка")
+            return XCTFail()
         }
         XCTAssertEqual(error, .tooLarge)
-        XCTAssertEqual(try database.pending.getAll(), [], "в очередь не ставилось")
+        XCTAssertEqual(try database.pending.getAll(), [])
     }
 
     // MARK: - 404
@@ -191,8 +191,8 @@ final class SendQueueTests: XCTestCase {
         await queue.enqueueText("привет")
         let failed = await waitFor { try self.database.pending.get("echo-1")?.state == .failed }
 
-        XCTAssertTrue(failed, "контакт не подтверждён (по умолчанию unknown) — отправка сбойная, история хранится")
-        XCTAssertNotNil(try database.conversations.get(7), "разговор не удалён без подтверждения контакта")
+        XCTAssertTrue(failed)
+        XCTAssertNotNil(try database.conversations.get(7))
     }
 
     func testSendWithoutSessionFailsWhenNobodyWasIdentified() async {
@@ -225,7 +225,7 @@ final class SendQueueTests: XCTestCase {
         let delivered = await waitFor { try self.database.messages.get(201) != nil }
 
         XCTAssertTrue(delivered)
-        XCTAssertEqual(api.createConversationCalls, 0, "resolved переиспользуется")
+        XCTAssertEqual(api.createConversationCalls, 0)
         XCTAssertEqual(api.createMessageCalls.first?.conversationID, 7)
     }
     func testNoSessionIdentifiesThenPosts() async throws {
@@ -416,7 +416,7 @@ final class SendQueueTests: XCTestCase {
         await recovering.enqueueText("второй")
         let capped = await waitFor { (try? self.database.pending.get("echo-2"))?.state == .failed }
         XCTAssertTrue(capped)
-        XCTAssertEqual(calls.value, 1, "повтор внутри 30с не запускает ещё один reidentify")
+        XCTAssertEqual(calls.value, 1)
         XCTAssertEqual(posts.value, 3)
 
         clock += 1_000
@@ -474,7 +474,7 @@ final class DuplicateMatcherTests: XCTestCase {
             pending: pending(),
             messages: [serverMessage(1, createdAt: 1_000 - DuplicateMatcher.beforeSeconds)]
         )
-        XCTAssertNotNil(match, "сдвиг часов в пределах окна — совпадение")
+        XCTAssertNotNil(match)
     }
 
     func testTooEarlyMessageIsNotMatch() {
@@ -482,7 +482,7 @@ final class DuplicateMatcherTests: XCTestCase {
             pending: pending(),
             messages: [serverMessage(1, createdAt: 1_000 - DuplicateMatcher.beforeSeconds - 1)]
         )
-        XCTAssertNil(match, "давнее сообщение с тем же текстом — отдельная отправка")
+        XCTAssertNil(match)
     }
 
     func testForeignMessageIsNotMatch() {
@@ -520,7 +520,7 @@ final class DuplicateMatcherTests: XCTestCase {
             messages: [one, two],
             fileSize: 500
         )
-        XCTAssertNil(match, "два кандидата — неопределённость, а не совпадение")
+        XCTAssertNil(match)
     }
 
     func testUnknownSizeIsNoMatch() {

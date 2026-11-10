@@ -48,7 +48,7 @@ final class SocketStateMachineTests: XCTestCase {
         struct E: Error {}
         let t = transition(.connectionFailed(E()))
         XCTAssertEqual(t.state, .disconnected)
-        XCTAssertEqual(t.effects, [.publishStatus(.closed)], "закрытие по нашей инициативе при .stopped публикует CLOSED")
+        XCTAssertEqual(t.effects, [.publishStatus(.closed)])
     }
 
     func testConnectedFailureRetriesWithWatchdogStop() {
@@ -76,10 +76,10 @@ final class SocketStateMachineTests: XCTestCase {
         _ = transition(.connectionOpened(atMs: 100))
         let t = transition(.forceReconnect(reason: "silence"))
         XCTAssertEqual(t.state, .disconnecting)
-        XCTAssertEqual(t.effects, [.closeConnection(code: normalClosureCode)], "без stopWatchdog: флаг поднимется снова")
+        XCTAssertEqual(t.effects, [.closeConnection(code: normalClosureCode)])
         let closed = transition(.connectionClosed(code: normalClosureCode))
         XCTAssertEqual(closed.state, .connecting)
-        XCTAssertEqual(closed.effects, [.openConnection], "без CLOSED при .started: баннер не мигает на реконнекте")
+        XCTAssertEqual(closed.effects, [.openConnection])
     }
 
     func testRetryTimerFiredReconnects() {

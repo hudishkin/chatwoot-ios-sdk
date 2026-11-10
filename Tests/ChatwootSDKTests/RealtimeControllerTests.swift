@@ -64,7 +64,7 @@ final class RealtimeControllerTests: XCTestCase {
             if condition() { return }
             await sleepMs(10)
         }
-        XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+        XCTAssertTrue(condition(), file: file, line: line)
     }
 
     private func sendText(_ text: String) {
@@ -88,7 +88,7 @@ final class RealtimeControllerTests: XCTestCase {
 
     func testStartsCableWhenWantedAndSessionPresent() async {
         await startRealtime()
-        XCTAssertEqual(socket.desiredHistory, [true], "кабель стартовал до открытия сокета")
+        XCTAssertEqual(socket.desiredHistory, [true])
     }
 
     func testStopsWhenNoLongerWanted() async {
@@ -135,7 +135,7 @@ final class RealtimeControllerTests: XCTestCase {
         ])
         await sleepMs(150)
         XCTAssertNil(try? database.messages.get(101))
-        XCTAssertEqual(api.conversationsCalls, 0, "чужое событие не должно будить синк")
+        XCTAssertEqual(api.conversationsCalls, 0)
     }
 
     func testUnknownConversationTriggersDiscoverSync() async throws {
@@ -148,7 +148,7 @@ final class RealtimeControllerTests: XCTestCase {
             "sender": ["type": "user"]
         ])
         await eventually { (try? self.database.conversations.get(7)) != nil }
-        XCTAssertGreaterThanOrEqual(api.conversationsCalls, 1, "незнакомый разговор нашего инбокса → discover-синк")
+        XCTAssertGreaterThanOrEqual(api.conversationsCalls, 1)
     }
 
     func testStatusChangedUpdatesDatabase() async throws {
@@ -186,7 +186,7 @@ final class RealtimeControllerTests: XCTestCase {
             "sender": ["type": "user"]
         ])
         await sleepMs(150)
-        XCTAssertNil(try? database.messages.get(101), "событие протухшего поколения не применяется")
+        XCTAssertNil(try? database.messages.get(101))
     }
 
     func testConfirmedSubscriptionTriggersSync() async {

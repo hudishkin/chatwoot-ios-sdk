@@ -13,7 +13,7 @@ final class ConversationDAOTests: XCTestCase {
     func testUpsertAndGet() throws {
         try dao.upsert(StorageFixtures.conversation(7, inboxId: 1, status: "open"))
         try dao.upsert(StorageFixtures.conversation(7, inboxId: 1, status: "resolved"))
-        XCTAssertEqual(try dao.get(7)?.status, "resolved", "upsert обновил строку")
+        XCTAssertEqual(try dao.get(7)?.status, "resolved")
     }
 
     func testAllOrderedByActivity() throws {
@@ -32,7 +32,7 @@ final class ConversationDAOTests: XCTestCase {
         let summaries = try dao.summaries(inboxId: 1)
         XCTAssertEqual(summaries.count, 1)
         XCTAssertEqual(summaries[0].lastMessagePreview, "последнее")
-        XCTAssertEqual(summaries[0].unread, 1, "входящее новее seen непрочитано; activity не считается")
+        XCTAssertEqual(summaries[0].unread, 1)
     }
 
     func testInsertIfAbsent() throws {
@@ -40,16 +40,16 @@ final class ConversationDAOTests: XCTestCase {
         let second = try dao.insertIfAbsent(StorageFixtures.conversation(7, status: "resolved"))
         XCTAssertTrue(first)
         XCTAssertFalse(second)
-        XCTAssertEqual(try dao.get(7)?.status, "open", "существующая строка не тронута")
+        XCTAssertEqual(try dao.get(7)?.status, "open")
     }
 
     func testMergeFromServerMovesMarkersOnlyForward() throws {
         try dao.upsert(StorageFixtures.conversation(7, contactLastSeenAt: 900, agentLastSeenAt: 800, lastActivityAt: 700))
         try dao.mergeFromServer(id: 7, inboxId: 1, status: "resolved", contactLastSeenAt: 100, agentLastSeenAt: 100, lastActivityAt: 1000)
         let stored = try dao.get(7)
-        XCTAssertEqual(stored?.status, "resolved", "статус — серверный")
-        XCTAssertEqual(stored?.contactLastSeenAt, 900, "seen не откатился")
-        XCTAssertEqual(stored?.lastActivityAt, 1000, "активность пошла вперёд")
+        XCTAssertEqual(stored?.status, "resolved")
+        XCTAssertEqual(stored?.contactLastSeenAt, 900)
+        XCTAssertEqual(stored?.lastActivityAt, 1000)
     }
 
     func testUpdateStatusKeepsSeenMarkers() throws {
@@ -64,8 +64,8 @@ final class ConversationDAOTests: XCTestCase {
         try dao.upsert(StorageFixtures.conversation(9, inboxId: 2, contactLastSeenAt: 50))
         try dao.markInboxSeen(1, at: 100)
         XCTAssertEqual(try dao.get(7)?.contactLastSeenAt, 100)
-        XCTAssertEqual(try dao.get(8)?.contactLastSeenAt, 150, "более свежее seen не тронуто")
-        XCTAssertEqual(try dao.get(9)?.contactLastSeenAt, 50, "чужой инбокс не тронут")
+        XCTAssertEqual(try dao.get(8)?.contactLastSeenAt, 150)
+        XCTAssertEqual(try dao.get(9)?.contactLastSeenAt, 50)
     }
 }
 
@@ -81,9 +81,9 @@ final class PendingDAOTests: XCTestCase {
     func testUpsertGetGetAllOrdered() throws {
         try dao.upsert(StorageFixtures.pending("b", createdAt: 200))
         try dao.upsert(StorageFixtures.pending("a", createdAt: 100))
-        XCTAssertEqual(try dao.getAll().map(\.echoId), ["a", "b"], "по времени создания")
+        XCTAssertEqual(try dao.getAll().map(\.echoId), ["a", "b"])
         try dao.upsert(StorageFixtures.pending("a", state: .failed))
-        XCTAssertEqual(try dao.get("a")?.state, .failed, "upsert обновил")
+        XCTAssertEqual(try dao.get("a")?.state, .failed)
     }
 
     func testMarkQueuedAsFailed() throws {
@@ -100,7 +100,7 @@ final class PendingDAOTests: XCTestCase {
         try dao.assignConversation("a", conversationId: 7)
         try dao.assignConversation("b", conversationId: 9)
         XCTAssertEqual(try dao.get("a")?.conversationId, 7)
-        XCTAssertEqual(try dao.get("b")?.conversationId, 5, "привязанная строка не перепривязана")
+        XCTAssertEqual(try dao.get("b")?.conversationId, 5)
     }
 
     func testPostedFlag() throws {

@@ -48,7 +48,7 @@ final class IdentifyInteractorTests: XCTestCase {
         XCTAssertEqual(create.avatarURL, "https://app.example.com/avatar.png")
 
         XCTAssertEqual(api.updateContactCalls.count, 1)
-        XCTAssertEqual(api.updateContactCalls[0].sourceID, "src-1", "PATCH идёт по source_id из create")
+        XCTAssertEqual(api.updateContactCalls[0].sourceID, "src-1")
         let patch = try jsonObject(api.updateContactCalls[0].body)
         XCTAssertEqual(patch["name"] as? String, "Jane")
         XCTAssertEqual(patch["identifier_hash"] as? String, "hash-42")
@@ -75,7 +75,7 @@ final class IdentifyInteractorTests: XCTestCase {
         try! store.write(Fixtures.session)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
         XCTAssertEqual(result, .success(Fixtures.session))
-        XCTAssertEqual(api.createContactCalls.count, 0, "хранимая сессия — без сетевых вызовов")
+        XCTAssertEqual(api.createContactCalls.count, 0)
         XCTAssertEqual(api.updateContactCalls.count, 0)
         XCTAssertEqual(wipeCount, 0)
     }
@@ -88,7 +88,7 @@ final class IdentifyInteractorTests: XCTestCase {
         guard case .success(let session) = result else {
             return XCTFail("expected success, got \(result)")
         }
-        XCTAssertEqual(wipeCount, 1, "данные прежнего пользователя стёрты до создания нового")
+        XCTAssertEqual(wipeCount, 1)
         XCTAssertEqual(session.identifier, "user-43")
         XCTAssertEqual(api.createContactCalls.count, 1)
     }
@@ -98,8 +98,8 @@ final class IdentifyInteractorTests: XCTestCase {
         try! store.write(Fixtures.session)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
         XCTAssertEqual(result, .success(Fixtures.session))
-        XCTAssertEqual(api.createContactCalls.count, 1, "force сбрасывает сессию и повторяет POST/PATCH")
-        XCTAssertEqual(wipeCount, 0, "force не стирает локальные данные, только сессию")
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        XCTAssertEqual(wipeCount, 0)
         XCTAssertEqual(store.owner(), "user-42")
     }
 
@@ -113,7 +113,7 @@ final class IdentifyInteractorTests: XCTestCase {
         }
         XCTAssertEqual(session.identifierHash, "hash-42")
         XCTAssertEqual(session.sourceID, "src-1")
-        XCTAssertEqual(wipeCount, 0, "смена хеша не стирает локальные данные")
+        XCTAssertEqual(wipeCount, 0)
         XCTAssertEqual(api.createContactCalls.count, 1)
         XCTAssertEqual(store.owner(), "user-42")
     }
@@ -136,7 +136,7 @@ final class IdentifyInteractorTests: XCTestCase {
         guard case .success = result else {
             return XCTFail("expected success, got \(result)")
         }
-        XCTAssertEqual(wipeCount, 1, "после потерянной сессии чужой identifier всё равно зачищает данные")
+        XCTAssertEqual(wipeCount, 1)
         XCTAssertEqual(store.owner(), "user-42")
     }
 
@@ -169,7 +169,7 @@ final class IdentifyInteractorTests: XCTestCase {
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity, force: true)
         XCTAssertEqual(result, .failure(.unknown))
         XCTAssertEqual(store.read(), old)
-        XCTAssertEqual(api.createContactCalls.count, 0, "сессию не сбрасываем, пока владелец данных не записан")
+        XCTAssertEqual(api.createContactCalls.count, 0)
     }
 
     func testFailedReidentifyThenSameIdentifierKeepsData() async {
@@ -206,7 +206,7 @@ final class IdentifyInteractorTests: XCTestCase {
         api.createContactStub = .failure(ChatwootError.network)
         let result = await interactor.identify(user: Fixtures.user, identity: Fixtures.identity)
         XCTAssertEqual(result, .failure(.network))
-        XCTAssertEqual(api.updateContactCalls.count, 0, "PATCH не уходит после неудачного create")
+        XCTAssertEqual(api.updateContactCalls.count, 0)
     }
 
     func testHttpErrorPropagates() async {
@@ -234,7 +234,7 @@ final class IdentifyInteractorTests: XCTestCase {
         let other = Identity(identifier: "user-43", identifierHash: "hash-43")
         let result = await failing.identify(user: Fixtures.user, identity: other)
         XCTAssertEqual(result, .failure(.unknown))
-        XCTAssertEqual(api.createContactCalls.count, 0, "при неудавшейся зачистке сеть не трогаем")
+        XCTAssertEqual(api.createContactCalls.count, 0)
     }
 
     func testPatchFailureLogOmitsSecrets() async {
@@ -291,7 +291,7 @@ final class IdentifyInteractorTests: XCTestCase {
         let blob = lines.joined(separator: "\n")
         XCTAssertTrue(blob.contains(needle), blob, file: file, line: line)
         for secret in ["user-42", "hash-42", "src-1", "tok-1", "Jane"] {
-            XCTAssertFalse(blob.contains(secret), "лог содержит \(secret): \(blob)", file: file, line: line)
+            XCTAssertFalse(blob.contains(secret), "log contains \(secret): \(blob)", file: file, line: line)
         }
     }
 }

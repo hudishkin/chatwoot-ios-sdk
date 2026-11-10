@@ -24,7 +24,7 @@ final class ChatViewModelTests: XCTestCase {
             if condition() { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertTrue(condition(), "условие не наступило за 2с", file: file, line: line)
+        XCTAssertTrue(condition(), file: file, line: line)
     }
 
     private func settle(ms: UInt64 = 120) async {
@@ -105,7 +105,7 @@ final class ChatViewModelTests: XCTestCase {
             if case .mine = $0 { return true }
             return false
         }) else {
-            return XCTFail("ожидалась своя строка из очереди")
+            return XCTFail()
         }
 
         vm.onRetry(failed.echoId ?? "")
@@ -180,7 +180,7 @@ final class ChatViewModelTests: XCTestCase {
             if case .theirs = $0 { return true }
             return false
         }) else {
-            return XCTFail("ожидалась строка агента")
+            return XCTFail()
         }
         XCTAssertTrue(theirs.deleted)
         XCTAssertNil(theirs.text)

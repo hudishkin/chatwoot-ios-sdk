@@ -30,7 +30,7 @@ final class SQLiteDatabaseTests: XCTestCase {
             throw E()
         })
         let count = try db.query("SELECT COUNT(*) FROM t") { $0.int(0) }.first
-        XCTAssertEqual(count, 0, "строка внутри упавшей транзакции откатилась")
+        XCTAssertEqual(count, 0)
     }
 
     func testNestedTransactionJoinsOuter() throws {
@@ -55,7 +55,7 @@ final class SQLiteDatabaseTests: XCTestCase {
     func testBadSQLThrows() {
         XCTAssertThrowsError(try db.run("INSERT INTO nope VALUES (1)")) { error in
             guard case SQLiteDatabase.DBError.prepare = error else {
-                return XCTFail("ожидалась ошибка prepare, получено \(error)")
+                return XCTFail("expected a prepare error, got \(error)")
             }
         }
     }

@@ -83,7 +83,7 @@ final class ConfigAndModelsTests: XCTestCase {
     func testAttributeDateRoundTrip() throws {
         let date = try XCTUnwrap(AttributeDate(parsing: "2024-02-29"))
         XCTAssertEqual(date.description, "2024-02-29")
-        XCTAssertNil(AttributeDate(parsing: "2023-02-29"), "2023 — не високосный")
+        XCTAssertNil(AttributeDate(parsing: "2023-02-29"))
         XCTAssertNil(AttributeDate(parsing: "29.02.2024"))
         XCTAssertNil(AttributeDate(year: 2024, month: 13, day: 1))
     }

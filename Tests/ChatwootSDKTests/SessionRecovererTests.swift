@@ -23,7 +23,7 @@ final class SessionRecovererTests: XCTestCase {
         let shared = await recoverer.recover(since: ticket)
         XCTAssertEqual(shared, .done)
         let hitsAfter = await gate.count
-        XCTAssertEqual(hitsAfter, 1, "отправка, вставшая в очередь до конца identify, не запускает вторую")
+        XCTAssertEqual(hitsAfter, 1)
     }
 
     func testReidentifyIsCapped() async {

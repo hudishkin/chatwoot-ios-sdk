@@ -66,7 +66,7 @@ final class RoomChannelClientTests: XCTestCase {
             sendText(#"{"type":"welcome"}"#)
             await sleepMs(10)
         }
-        XCTFail("клиент не подписался", file: file, line: line)
+        XCTFail(file: file, line: line)
     }
 
     private func waitUntil(
@@ -78,7 +78,7 @@ final class RoomChannelClientTests: XCTestCase {
             if condition() { return }
             await sleepMs(10)
         }
-        XCTFail("условие не выполнилось", file: file, line: line)
+        XCTFail(file: file, line: line)
     }
 
     func testSubscribeAfterWelcome() async {
@@ -107,7 +107,7 @@ final class RoomChannelClientTests: XCTestCase {
         let presence = CableCodec.presenceFrame(pubsubToken: "tok")
         await waitUntil(cable.subscription.value == .confirmed && socket.sent.contains(presence))
         XCTAssertEqual(cable.subscription.value, .confirmed)
-        XCTAssertTrue(socket.sent.contains(presence), "presence пошёл после confirm")
+        XCTAssertTrue(socket.sent.contains(presence))
     }
 
     func testNoConfirmReconnects() async {
@@ -162,7 +162,7 @@ final class RoomChannelClientTests: XCTestCase {
         let confirm = try! JSONSerialization.data(withJSONObject: ["type": "confirm_subscription", "identifier": foreignIdentifier])
         sendText(String(data: confirm, encoding: .utf8)!)
         await sleepMs(20)
-        XCTAssertEqual(cable.subscription.value, .subscribing, "чужой confirm проигнорирован")
+        XCTAssertEqual(cable.subscription.value, .subscribing)
     }
 
     func testTerminalDisconnectStopsSocketAndReports() async {
@@ -179,7 +179,7 @@ final class RoomChannelClientTests: XCTestCase {
         await fulfillment(of: [received], timeout: 1)
         XCTAssertEqual(reason, "unauthorized")
         await waitUntil(socket.desiredHistory == [false])
-        XCTAssertEqual(socket.desiredHistory, [false], "сокет остановлен сервером навсегда")
+        XCTAssertEqual(socket.desiredHistory, [false])
     }
 
     func testUnknownReasonSanitized() async {
@@ -190,7 +190,7 @@ final class RoomChannelClientTests: XCTestCase {
         await waitForSubscription()
         sendText(#"{"type":"disconnect","reason":"weird server text","reconnect":false}"#)
         await waitUntil(reasons == ["other"])
-        XCTAssertEqual(reasons, ["other"], "свободный текст сервера не пересылается")
+        XCTAssertEqual(reasons, ["other"])
     }
 
     func testUpdateTokenResubscribes() async {
