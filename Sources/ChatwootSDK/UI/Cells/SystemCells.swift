@@ -70,10 +70,12 @@ struct FailedState: View {
 }
 
 struct EmptyState: View {
+    var text: String = ChatStrings.empty
+
     @Environment(\.chatColors) private var colors
 
     var body: some View {
-        Text(ChatStrings.empty)
+        Text(text)
             .font(.subheadline)
             .foregroundColor(colors.systemText)
             .multilineTextAlignment(.center)

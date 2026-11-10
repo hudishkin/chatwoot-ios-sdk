@@ -193,4 +193,48 @@ final class SyncManagerTests: XCTestCase {
         await sync.invalidate {}
         XCTAssertEqual(sync.currentEpoch, before + 1)
     }
+
+    func testInvalidateDuringFetchDropsTheSnapshot() async {
+        let entered = expectation(description: "conversations")
+        let gate = ResumeGate()
+        api.conversationsHandler = {
+            entered.fulfill()
+            await gate.wait()
+            return .success([self.conversationDTO(7, messages: [self.messageDTO(11, createdAt: 100)])])
+        }
+        let syncing = Task { await self.sync.sync(.refresh) }
+        await fulfillment(of: [entered], timeout: 2)
+        await sync.invalidate {}
+        gate.resume()
+        _ = await syncing.value
+        XCTAssertEqual(try database.messages.messagesOf(conversationId: 7).count, 0)
+    }
+}
+
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func resume() {
+        lock.lock()
+        resumed = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
+    }
 }

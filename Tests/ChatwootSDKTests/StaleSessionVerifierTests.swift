@@ -28,6 +28,8 @@ final class StaleSessionVerifierTests: XCTestCase {
         let verdict = await verify()
         guard case .stale = verdict else { return XCTFail("404 → stale, получено \(verdict)") }
         XCTAssertEqual(api.contactChecks, ["src-1"])
+        XCTAssertEqual(api.contactQueries.first?.identifier, "user-42")
+        XCTAssertEqual(api.contactQueries.first?.identifierHash, "hash-42")
     }
 
     func testVerifyMapsHttp401ToStale() async {

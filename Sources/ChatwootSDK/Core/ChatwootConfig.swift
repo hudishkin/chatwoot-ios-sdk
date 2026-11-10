@@ -49,6 +49,9 @@ public struct ChatwootConfig {
     /// inside it, a wider gap between runs. `false` leaves every bubble separate,
     /// with that wider gap between each pair. `true` by default.
     public let groupMessagesByTime: Bool
+    /// Text in the middle of the chat while it has no messages.
+    /// `nil` uses the SDK string for the current language.
+    public let emptyMessage: String?
     /// Host keys whose values are personal data and are masked in every SDK log
     /// line (like the built-in `account=…`). Letters, digits and `_`, 1–64 chars.
     public let redactedKeys: Set<String>
@@ -72,6 +75,7 @@ public struct ChatwootConfig {
         realtime: ChatwootRealtime = .whileForeground,
         resolvedConversations: ResolvedConversations = .startNew,
         groupMessagesByTime: Bool = true,
+        emptyMessage: String? = nil,
         redactedKeys: Set<String> = [],
         logSink: LogSink? = nil,
         debugConsoleLogging: Bool = false
@@ -100,6 +104,7 @@ public struct ChatwootConfig {
         self.realtime = realtime
         self.resolvedConversations = resolvedConversations
         self.groupMessagesByTime = groupMessagesByTime
+        self.emptyMessage = emptyMessage
         self.redactedKeys = redactedKeys
         self.logSink = logSink
         self.debugConsoleLogging = debugConsoleLogging

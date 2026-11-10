@@ -36,6 +36,7 @@ final class SendQueueTests: XCTestCase {
     }
 
     override func tearDown() {
+        CWLog.install(sink: nil, console: false)
         queue = nil
         super.tearDown()
     }
@@ -227,6 +228,219 @@ final class SendQueueTests: XCTestCase {
         XCTAssertEqual(api.createConversationCalls, 0, "resolved переиспользуется")
         XCTAssertEqual(api.createMessageCalls.first?.conversationID, 7)
     }
+    func testNoSessionIdentifiesThenPosts() async throws {
+        store.clear()
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let identifies = Counter()
+        let sink = LineSink()
+        CWLog.install(sink: sink, console: false)
+        let recovering = makeQueue(recoverer: SessionRecoverer(
+            identifyOnce: { [store] in
+                identifies.value += 1
+                try? store?.write(Fixtures.session)
+                return .done
+            },
+            retryDelaysMs: [],
+            now: { [unowned self] in self.clock }
+        ))
+        api.createMessageStub = .success(messageDTO(101, echoID: "echo-1"))
+        await recovering.start()
+        await recovering.enqueueText("привет")
+        let delivered = await waitFor { try self.database.messages.get(101) != nil }
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(identifies.value, 1)
+        XCTAssertEqual(api.createMessageCalls.count, 1)
+        XCTAssertTrue(sink.lines.contains { $0.contains("no session echo=echo-1, identifying") })
+    }
+
+    func testIdentifyFailureFailsTheSendWithoutPosting() async throws {
+        store.clear()
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let recovering = makeQueue(recoverer: SessionRecoverer(
+            identifyOnce: { .failed(.network) },
+            retryDelaysMs: [],
+            now: { [unowned self] in self.clock }
+        ))
+        await recovering.start()
+        await recovering.enqueueText("привет")
+        let failed = await waitFor { (try? self.database.pending.get("echo-1"))?.state == .failed }
+        XCTAssertTrue(failed)
+        XCTAssertEqual(api.createMessageCalls.count, 0)
+        XCTAssertEqual(recovering.failures.value["echo-1"], .session)
+    }
+
+    func testTwoSendsWithoutASessionShareOneIdentify() async throws {
+        store.clear()
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let identifies = Counter()
+        let gate = ResumeGate()
+        let recovering = makeQueue(recoverer: SessionRecoverer(
+            identifyOnce: { [store] in
+                identifies.value += 1
+                await gate.wait()
+                try? store?.write(Fixtures.session)
+                return .done
+            },
+            retryDelaysMs: [],
+            now: { [unowned self] in self.clock }
+        ))
+        api.createMessageStub = .success(messageDTO(101))
+        await recovering.start()
+        await recovering.enqueueText("один")
+        await recovering.enqueueText("два")
+        let started = await waitFor { identifies.value == 1 }
+        XCTAssertTrue(started)
+        gate.resume()
+        let posted = await waitFor { self.api.createMessageCalls.count == 2 }
+        XCTAssertTrue(posted)
+        XCTAssertEqual(identifies.value, 1)
+    }
+
+    func testMessage404WithStaleContactReidentifiesAndReposts() async throws {
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let calls = Counter()
+        let sources = Sources()
+        api.createMessageHandler = { source, _, body in
+            let n = sources.add(source)
+            if n == 1 { throw ChatwootError.http(code: 404) }
+            return self.messageDTO(101, echoID: body.echoID)
+        }
+        let recovering = makeQueue(
+            recoverer: SessionRecoverer(
+                identifyOnce: { .notIdentified },
+                reidentifyOnce: { [store] _ in
+                    calls.value += 1
+                    try? store?.write(Session(
+                        identifier: "user-42", identifierHash: "hash-42",
+                        sourceID: "src-2", pubsubToken: "tok-2", contactID: 9
+                    ))
+                    return .done
+                },
+                retryDelaysMs: [],
+                now: { [unowned self] in self.clock }
+            ),
+            contactCheck: { _ in .stale }
+        )
+        await recovering.start()
+        await recovering.enqueueText("привет")
+        let delivered = await waitFor { try self.database.messages.get(101) != nil }
+        XCTAssertTrue(delivered)
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(sources.values, ["src-1", "src-2"])
+    }
+
+    func testFailedReidentifyDoesNotPostAgain() async throws {
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let calls = Counter()
+        api.createMessageHandler = { _, _, _ in throw ChatwootError.http(code: 404) }
+        let recovering = makeQueue(
+            recoverer: SessionRecoverer(
+                identifyOnce: { .notIdentified },
+                reidentifyOnce: { _ in
+                    calls.value += 1
+                    return .failed(.http(code: 500))
+                },
+                retryDelaysMs: [],
+                now: { [unowned self] in self.clock }
+            ),
+            contactCheck: { _ in .stale }
+        )
+        await recovering.start()
+        await recovering.enqueueText("привет")
+        let failed = await waitFor { (try? self.database.pending.get("echo-1"))?.state == .failed }
+        XCTAssertTrue(failed)
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(api.createMessageCalls.count, 1)
+        XCTAssertEqual(recovering.failures.value["echo-1"], .session)
+    }
+
+    func testMessage404WithUnknownContactDoesNotReidentify() async throws {
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let calls = Counter()
+        api.createMessageHandler = { _, _, _ in throw ChatwootError.http(code: 404) }
+        let recovering = makeQueue(
+            recoverer: SessionRecoverer(
+                identifyOnce: { .notIdentified },
+                reidentifyOnce: { _ in
+                    calls.value += 1
+                    return .done
+                },
+                retryDelaysMs: [],
+                now: { [unowned self] in self.clock }
+            ),
+            contactCheck: { _ in .unknown }
+        )
+        await recovering.start()
+        await recovering.enqueueText("привет")
+        let failed = await waitFor { (try? self.database.pending.get("echo-1"))?.state == .failed }
+        XCTAssertTrue(failed)
+        XCTAssertEqual(calls.value, 0)
+        XCTAssertEqual(api.createMessageCalls.count, 1)
+    }
+
+    func testReidentifyIsCappedUntilTheIntervalElapses() async throws {
+        try database.conversations.upsert(StorageFixtures.conversation(7))
+        let calls = Counter()
+        let posts = Counter()
+        api.createMessageHandler = { _, _, body in
+            let n = posts.value + 1
+            posts.value = n
+            if n == 1 || n == 3 || n == 4 { throw ChatwootError.http(code: 404) }
+            return self.messageDTO(100 + n, echoID: body.echoID)
+        }
+        let recovering = makeQueue(
+            recoverer: SessionRecoverer(
+                identifyOnce: { .notIdentified },
+                reidentifyOnce: { [store] _ in
+                    let n = calls.value + 1
+                    calls.value = n
+                    try? store?.write(Session(
+                        identifier: "user-42", identifierHash: "hash-42",
+                        sourceID: "src-\(n + 1)", pubsubToken: "tok-\(n + 1)", contactID: 9
+                    ))
+                    return .done
+                },
+                retryDelaysMs: [],
+                reidentifyIntervalMs: 30_000,
+                now: { [unowned self] in self.clock }
+            ),
+            contactCheck: { _ in .stale }
+        )
+        await recovering.start()
+        await recovering.enqueueText("первый")
+        let firstReposted = await waitFor { posts.value >= 2 }
+        XCTAssertTrue(firstReposted)
+        XCTAssertEqual(calls.value, 1)
+
+        clock += 29_000
+        await recovering.enqueueText("второй")
+        let capped = await waitFor { (try? self.database.pending.get("echo-2"))?.state == .failed }
+        XCTAssertTrue(capped)
+        XCTAssertEqual(calls.value, 1, "повтор внутри 30с не запускает ещё один reidentify")
+        XCTAssertEqual(posts.value, 3)
+
+        clock += 1_000
+        await recovering.enqueueText("третий")
+        let retried = await waitFor { posts.value == 5 }
+        XCTAssertTrue(retried)
+        XCTAssertEqual(calls.value, 2)
+    }
+
+    private func makeQueue(
+        recoverer: SessionRecoverer,
+        contactCheck: @escaping (Session) async -> SendQueue.ContactVerdict = { _ in .unknown }
+    ) -> SendQueue {
+        SendQueue(
+            api: api, inboxIdentifier: "inbox-1", inboxId: 1, store: store,
+            pendingDAO: database.pending, messageDAO: database.messages, conversationDAO: database.conversations,
+            sync: sync, sessionGuard: SessionGuard(), attachmentsDir: attachmentsDir,
+            now: { [unowned self] in self.clock },
+            newEchoId: { [unowned self] in self.echoCounter += 1; return "echo-\(self.echoCounter)" },
+            contactCheck: contactCheck,
+            realtimeLive: { true },
+            sessionRecoverer: recoverer
+        )
+    }
 }
 
 final class DuplicateMatcherTests: XCTestCase {
@@ -316,5 +530,73 @@ final class DuplicateMatcherTests: XCTestCase {
             fileSize: nil
         )
         XCTAssertNil(match)
+    }
+
+}
+
+private final class Counter: @unchecked Sendable {
+    var value = 0
+}
+
+private final class Sources: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func add(_ value: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        stored.append(value)
+        return stored.count
+    }
+}
+
+private final class LineSink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func log(level: LogLevel, domain: String, line: String, error: SanitizedError?) {
+        lock.lock()
+        stored.append(line)
+        lock.unlock()
+    }
+}
+
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func resume() {
+        lock.lock()
+        resumed = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }

@@ -21,6 +21,7 @@ final class ChatwootFacadeTests: XCTestCase {
     private func installCore(
         config: ChatwootConfig? = nil,
         activity: AnyPublisher<Bool, Never> = Just(false).eraseToAnyPublisher(),
+        socket: (any SocketManaging)? = nil,
         unreadPollIntervalMs: UInt64 = RealtimeController.pollIntervalMs,
         stopGraceMs: UInt64 = ChatwootCore.stopGraceMs
     ) async throws -> ChatwootCore {
@@ -30,6 +31,7 @@ final class ChatwootFacadeTests: XCTestCase {
             api: api,
             sessionStore: store,
             dataDirectory: directory,
+            socket: socket,
             appActivity: activity,
             unreadPollIntervalMs: unreadPollIntervalMs,
             stopGraceMs: stopGraceMs
@@ -101,7 +103,39 @@ final class ChatwootFacadeTests: XCTestCase {
         assertSuccess(result)
         let stack = await core.stack
         XCTAssertNotNil(stack, "стек данных собран после identify")
-        await eventually { self.api.conversationsCalls == 1 }
+        XCTAssertEqual(api.conversationsCalls, 1)
+    }
+
+    func testIdentifyAgainWithSameIdentitySyncsWithoutNewContact() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        _ = try await installCore()
+        let provider = StubIdentityProvider(result: .success(Fixtures.identity))
+        assertSuccess(await Chatwoot.identify(user: Fixtures.user, identity: provider))
+        XCTAssertEqual(api.conversationsCalls, 1)
+
+        assertSuccess(await Chatwoot.identify(user: Fixtures.user, identity: provider))
+        XCTAssertEqual(api.createContactCalls.count, 1, "тот же identifier и хеш не создают контакт заново")
+        XCTAssertEqual(api.conversationsCalls, 2, "повторный identify всё равно синхронизирует переписку")
+    }
+
+    func testIdentifyAgainWithNewHashReplacesSession() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore()
+        assertSuccess(await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity))))
+
+        api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
+        let result = await Chatwoot.identify(
+            user: Fixtures.user,
+            identity: StubIdentityProvider(result: .success(Identity(identifier: "user-42", identifierHash: "hash-new")))
+        )
+        assertSuccess(result)
+        let session = await core.session
+        XCTAssertEqual(session?.identifierHash, "hash-new")
+        XCTAssertEqual(session?.sourceID, "src-2")
+        XCTAssertEqual(api.createContactCalls.count, 2)
+        XCTAssertEqual(api.conversationsCalls, 2)
     }
 
     func testStaleSessionSignalTriggersReidentify() async throws {
@@ -126,6 +160,30 @@ final class ChatwootFacadeTests: XCTestCase {
         await eventually { self.api.contactChecks.count == 1 }
         try? await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(api.createContactCalls.count, 1, "живая сессия не ре-идентифицируется")
+    }
+
+    private var foreground: AnyPublisher<Bool, Never> { Just(true).eraseToAnyPublisher() }
+
+    private static let unauthorizedDisconnect = #"{"type":"disconnect","reason":"unauthorized","reconnect":false}"#
+
+    private func connectedSocket() -> FakeSocketManaging {
+        let socket = FakeSocketManaging()
+        socket.state.send(.connected(since: 0))
+        return socket
+    }
+
+    private func textMessage(_ id: Int, conversationID: Int = 7, echoID: String? = nil) -> MessageDTO {
+        MessageDTO(
+            id: id, content: "m\(id)", messageType: 1, contentType: "text", contentAttributes: nil,
+            createdAt: 100, conversationID: conversationID, inboxID: 1, echoID: echoID, attachments: nil, sender: nil
+        )
+    }
+
+    private func conversation(_ id: Int, messages: [MessageDTO]) -> ConversationDTO {
+        ConversationDTO(
+            id: id, uuid: nil, inboxID: 1, status: "open", contactLastSeenAt: 0, agentLastSeenAt: 0,
+            messages: messages, contact: nil
+        )
     }
 
     private func eventually(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async {
@@ -270,6 +328,202 @@ final class ChatwootFacadeTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 80_000_000)
         let afterGrace = await core.connectionWanted.value
         XCTAssertFalse(afterGrace)
+    }
+
+    func testDeferredReidentifySurvivesAFailingIdentify() async throws {
+        try SessionStore(directory: directory).write(Fixtures.session)
+        api.contactStub = .failure(ChatwootError.http(code: 404))
+        api.conversationsStub = .failure(ChatwootError.http(code: 401))
+        api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore()
+        await core.catchUp()
+        await eventually { self.api.contactChecks.count >= 1 }
+        XCTAssertEqual(api.createContactCalls.count, 0)
+        api.conversationsStub = .success([])
+
+        let failed = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .failure(.network)))
+        assertFailure(failed, .network)
+        XCTAssertEqual(api.createContactCalls.count, 0, "неудачный identify не снимает отложенный reidentify")
+
+        let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        assertSuccess(result)
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        let session = await core.session
+        XCTAssertEqual(session?.sourceID, "src-2")
+        XCTAssertEqual(session?.pubsubToken, "tok-2")
+    }
+
+    func testStaleBurstReidentifiesOnceAndResubscribes() async throws {
+        let socket = connectedSocket()
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore(activity: foreground, socket: socket)
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-1")) }
+
+        api.contactStub = .failure(ChatwootError.http(code: 404))
+        api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
+        core.sessionGuard.request("http_404")
+        core.sessionGuard.request("http_404")
+        core.sessionGuard.request("http_404")
+        await eventually { self.api.createContactCalls.count == 2 }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(api.createContactCalls.count, 2, "пачка сигналов — один reidentify, следующий уже под капом")
+        let session = await core.session
+        XCTAssertEqual(session?.pubsubToken, "tok-2")
+        XCTAssertTrue(socket.desiredHistory.contains(false), "старое соединение рвётся вместе с сессией")
+        XCTAssertTrue(socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-2")))
+    }
+
+    func testTerminalDisconnectWithHealthyContactLeavesTheSession() async throws {
+        let socket = connectedSocket()
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        api.contactStub = .success(Fixtures.contactInbox())
+        let core = try await installCore(activity: foreground, socket: socket)
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-1")) }
+        socket.frames.send(.text(Self.unauthorizedDisconnect))
+        await eventually { socket.desiredHistory.contains(false) }
+        await eventually { self.api.contactChecks.count >= 1 }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(api.createContactCalls.count, 1, "живой контакт после disconnect не пересоздаётся")
+        let session = await core.session
+        XCTAssertEqual(session?.pubsubToken, "tok-1")
+    }
+
+    func testTerminalDisconnectWithStaleContactReidentifiesOnce() async throws {
+        let socket = connectedSocket()
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore(activity: foreground, socket: socket)
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-1")) }
+        api.contactStub = .failure(ChatwootError.http(code: 404))
+        api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
+        socket.frames.send(.text(Self.unauthorizedDisconnect))
+        await eventually { self.api.createContactCalls.count == 2 }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(api.createContactCalls.count, 2)
+        let session = await core.session
+        XCTAssertEqual(session?.pubsubToken, "tok-2")
+    }
+
+    func testThreeMissedConfirmsWithHealthyContactDoesNotReidentify() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        api.contactStub = .success(Fixtures.contactInbox())
+        let core = try await installCore()
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        core.sessionGuard.onMissedConfirms(1)
+        core.sessionGuard.onMissedConfirms(2)
+        core.sessionGuard.onMissedConfirms(3)
+        await eventually { self.api.contactChecks.count >= 1 }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(api.createContactCalls.count, 1)
+        XCTAssertEqual(api.contactChecks.count, 1, "три пропуска подтверждают сессию одним GET")
+    }
+
+    func testConversations404WithUnknownContactDoesNotReidentify() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        api.contactStub = .failure(ChatwootError.network)
+        let core = try await installCore()
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        core.sessionGuard.onHttp(code: 404, path: "/public/api/v1/inboxes/inbox-1/contacts/src-1/conversations")
+        await eventually { self.api.contactChecks.count >= 1 }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(api.createContactCalls.count, 1)
+    }
+
+    func testResetDuringCreateContactLeavesNoSession() async throws {
+        let entered = expectation(description: "create contact")
+        let gate = ResumeGate()
+        api.createContactHandler = { _ in
+            entered.fulfill()
+            await gate.wait()
+            return Fixtures.contactInbox()
+        }
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore()
+        let identifyTask = Task { await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity))) }
+        await fulfillment(of: [entered], timeout: 2)
+        let resetTask = Task { await Chatwoot.reset() }
+        gate.resume()
+        _ = await identifyTask.value
+        await resetTask.value
+        let session = await core.session
+        XCTAssertNil(session)
+    }
+
+    func testResetDuringSyncDropsTheSnapshot() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore()
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        let entered = expectation(description: "conversations")
+        let gate = ResumeGate()
+        api.conversationsHandler = {
+            entered.fulfill()
+            await gate.wait()
+            return .success([self.conversation(7, messages: [self.textMessage(11)])])
+        }
+        let syncing = Task { await core.stack?.sync.sync(.refresh) }
+        await fulfillment(of: [entered], timeout: 2)
+        await Chatwoot.reset()
+        gate.resume()
+        _ = await syncing.value
+        let count = try await core.stack?.database.messages.messagesOfInbox(inboxId: 1).count
+        XCTAssertEqual(count, 0, "ответ, пришедший после reset, не записывается")
+    }
+
+    func testResetDuringMessagePostDoesNotStoreTheAck() async throws {
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore()
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        try await core.stack?.database.conversations.upsert(StorageFixtures.conversation(7))
+        let entered = expectation(description: "post message")
+        let gate = ResumeGate()
+        api.createMessageHandler = { _, _, body in
+            entered.fulfill()
+            await gate.wait()
+            return self.textMessage(101, echoID: body.echoID)
+        }
+        let queue = await core.stack?.sendQueue
+        await queue?.enqueueText("привет")
+        await fulfillment(of: [entered], timeout: 2)
+        await Chatwoot.reset()
+        gate.resume()
+        await eventually { queue?.inFlight.value.isEmpty == true }
+        let count = try await core.stack?.database.messages.messagesOfInbox(inboxId: 1).count
+        XCTAssertEqual(count, 0)
+    }
+
+    func testSwitchingUserSubscribesWithTheNewTokenAndWipesHistory() async throws {
+        let socket = connectedSocket()
+        api.createContactStub = .success(Fixtures.contactInbox())
+        api.updateContactStub = .success(Fixtures.contact())
+        let core = try await installCore(activity: foreground, socket: socket)
+        _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
+        await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-1")) }
+        try await core.stack?.database.conversations.upsert(StorageFixtures.conversation(7))
+        try await core.stack?.database.messages.applyServerMessage(
+            StorageFixtures.message(11, conversationId: 7, createdAt: 1), attachments: [], echoId: nil
+        )
+
+        let other = Identity(identifier: "user-43", identifierHash: "hash-43")
+        api.createContactStub = .success(Fixtures.contactInbox(sourceID: "src-2", pubsubToken: "tok-2"))
+        api.updateContactStub = .success(Fixtures.contact(identifier: "user-43"))
+        let result = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(other)))
+        assertSuccess(result)
+        await eventually { socket.sent.contains(CableCodec.subscribeFrame(pubsubToken: "tok-2")) }
+        XCTAssertTrue(socket.desiredHistory.contains(false), "сокет прежнего пользователя отключается")
+        let session = await core.session
+        XCTAssertEqual(session?.identifier, "user-43")
+        let count = try await core.stack?.database.messages.messagesOfInbox(inboxId: 1).count
+        XCTAssertEqual(count, 0, "чужой identifier стирает локальную историю")
     }
 
     func testSecondInitializeIsIgnored() throws {

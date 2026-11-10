@@ -10,6 +10,17 @@ final class ConfigAndModelsTests: XCTestCase {
         XCTAssertEqual(config.realtime, .whileForeground)
         XCTAssertEqual(config.resolvedConversations, .startNew)
         XCTAssertTrue(config.groupMessagesByTime)
+        XCTAssertNil(config.emptyMessage)
+    }
+
+    func testEmptyMessageCanBeSet() throws {
+        let config = try ChatwootConfig(
+            baseURL: "https://chat.example.com",
+            inboxIdentifier: "inbox-1",
+            inboxID: 1,
+            emptyMessage: "Здравствуйте"
+        )
+        XCTAssertEqual(config.emptyMessage, "Здравствуйте")
     }
 
     func testConfigCanDisableTimeGrouping() throws {
