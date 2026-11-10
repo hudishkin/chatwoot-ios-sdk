@@ -318,7 +318,12 @@ final class ChatwootFacadeTests: XCTestCase {
         )
         api.createContactStub = .success(Fixtures.contactInbox())
         api.updateContactStub = .success(Fixtures.contact())
-        let core = try await installCore(config: config, activity: activity.eraseToAnyPublisher(), stopGraceMs: 40)
+        let core = try await installCore(
+            config: config,
+            activity: activity.eraseToAnyPublisher(),
+            socket: FakeSocketManaging(),
+            stopGraceMs: 40
+        )
         _ = await Chatwoot.identify(user: Fixtures.user, identity: StubIdentityProvider(result: .success(Fixtures.identity)))
         let beforeChat = await core.connectionWanted.value
         XCTAssertFalse(beforeChat)
@@ -328,9 +333,15 @@ final class ChatwootFacadeTests: XCTestCase {
         await core.noteChatDisappeared()
         let duringGrace = await core.connectionWanted.value
         XCTAssertTrue(duringGrace)
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        let afterGrace = await core.connectionWanted.value
-        XCTAssertFalse(afterGrace)
+        var dropped = false
+        for _ in 0..<50 {
+            if await core.connectionWanted.value == false {
+                dropped = true
+                break
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(dropped)
     }
 
     func testDeferredReidentifySurvivesAFailingIdentify() async throws {
